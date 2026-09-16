@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #faf9f6;
+    color: #1c1917;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Luxury Fine-Art Cotton Rag Canvas Texture */
+.bg-board-paper {
+  background-color: #faf8f5;
+  background-image:
+    /* Ambient warm radial spotlight */
+    radial-gradient(ellipse 70% 60% at 50% 45%, rgba(255, 255, 255, 0.95) 0%, rgba(250, 248, 245, 0.8) 50%, rgba(239, 235, 227, 0.95) 100%),
+    /* Microscopic cotton paper grain */
+    radial-gradient(#d6d0c4 0.65px, transparent 0.65px),
+    radial-gradient(#d6d0c4 0.65px, #faf8f5 0.65px);
+  background-size: 100% 100%, 28px 28px, 28px 28px;
+  background-position: 0 0, 0 0, 14px 14px;
+}
+
+/* Custom Minimalist Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(214, 208, 196, 0.6);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 174, 162, 0.8);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Subtle floating motes animation */
+@keyframes floatParticle {
+  0% { transform: translateY(0) translateX(0) scale(1); opacity: 0.2; }
+  50% { transform: translateY(-30px) translateX(15px) scale(1.1); opacity: 0.5; }
+  100% { transform: translateY(-60px) translateX(-5px) scale(0.9); opacity: 0; }
+}
+
+.animate-float-particle {
+  animation: floatParticle 8s ease-in-out infinite;
+}
