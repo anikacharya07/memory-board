@@ -551,7 +551,7 @@ export function App() {
       </header>
 
       {/* Floating Audio Interaction Prompt (Unobtrusive) */}
-      {!hasInteracted && !isWelcomeOverlayOpen && !hubActiveMemory && (
+      {!hasInteracted && !isWelcomeOverlayOpen && !hubActiveMemory && nodes.length > 0 && (
         <div className="fixed bottom-14 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900/85 text-white/90 backdrop-blur-xl px-4 py-2 rounded-full text-[11px] sm:text-xs flex items-center gap-2 shadow-[0_10px_30px_rgba(0,0,0,0.15)] ring-1 ring-white/10 animate-pulse pointer-events-none whitespace-nowrap">
           <Sparkles className="w-3.5 h-3.5 text-pink-300 shrink-0" />
           <span>drag a memory to the central box to play its song</span>
@@ -559,7 +559,7 @@ export function App() {
       )}
 
       {/* Mobile Fit View Toggle Pill (Phone-Only Feature) */}
-      {isMobileView && (
+      {isMobileView && nodes.length > 0 && (
         <button
           onClick={() => {
             handleUserGesture();
@@ -579,31 +579,6 @@ export function App() {
             </>
           )}
         </button>
-      )}
-
-      {/* Empty Board State Helper */}
-      {nodes.length === 0 && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-white/80 backdrop-blur-md border border-neutral-200/80 shadow-md max-w-sm">
-          <Trash2 className="w-6 h-6 text-neutral-400 mb-2" />
-          <p className="text-sm font-medium text-neutral-700 lowercase mb-1">the board is clear</p>
-          <p className="text-xs text-neutral-400 font-light lowercase mb-4 leading-relaxed">
-            pin your own memories or restore the sample constellation anytime.
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="px-4 py-1.5 rounded-full bg-neutral-900 text-white text-xs font-medium hover:bg-neutral-800 transition-colors"
-            >
-              + add memory
-            </button>
-            <button
-              onClick={handleResetDefault}
-              className="px-4 py-1.5 rounded-full border border-neutral-200 bg-white text-neutral-700 text-xs font-medium hover:bg-neutral-50 transition-colors"
-            >
-              restore memories
-            </button>
-          </div>
-        </div>
       )}
 
       {/* Board Canvas (Scalable for phone view) */}
@@ -640,19 +615,21 @@ export function App() {
         />
 
         {/* Central Drop Hub ("drop a memory here / see what it sounds like") */}
-        <CentralHub
-          x={hubPos.x}
-          y={hubPos.y}
-          width={hubPos.width}
-          height={hubPos.height}
-          isDragOver={isDragOverHub}
-          activeMemory={hubActiveMemory}
-          onClearActiveMemory={handleClearHub}
-          onDropMemory={memory => {
-            setHubActiveMemory(memory);
-            audioEngine.playMemory(memory.id, memory.audioPreset, memory.audioUrl);
-          }}
-        />
+        {nodes.length > 0 && (
+          <CentralHub
+            x={hubPos.x}
+            y={hubPos.y}
+            width={hubPos.width}
+            height={hubPos.height}
+            isDragOver={isDragOverHub}
+            activeMemory={hubActiveMemory}
+            onClearActiveMemory={handleClearHub}
+            onDropMemory={memory => {
+              setHubActiveMemory(memory);
+              audioEngine.playMemory(memory.id, memory.audioPreset, memory.audioUrl);
+            }}
+          />
+        )}
 
         {/* Scattered Draggable Memory Cards */}
         {nodes.map(node => (
