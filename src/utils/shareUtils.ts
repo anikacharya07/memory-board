@@ -65,12 +65,58 @@ interface CompactSharePayload {
 /**
  * Generate compressed shareable URL hash with smart compact delta encoding
  */
+export interface NetworkInfo {
+  localIp: string;
+  port: number;
+  phoneUrl: string;
+}
+
+let cachedNetworkInfo: NetworkInfo | null = null;
+
+/**
+ * Fetch local network IP from dev server or fallback to current origin
+ */
+export async function fetchNetworkInfo(): Promise<NetworkInfo | null> {
+  if (cachedNetworkInfo) return cachedNetworkInfo;
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const res = await fetch('/api/network-info');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.localIp) {
+        cachedNetworkInfo = {
+          localIp: data.localIp,
+          port: data.port || 5173,
+          phoneUrl: `http://${data.localIp}:${data.port || 5173}${window.location.pathname}`,
+        };
+        return cachedNetworkInfo;
+      }
+    }
+  } catch {}
+
+  const hostname = window.location.hostname;
+  const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+
+  if (!isLoopback) {
+    cachedNetworkInfo = {
+      localIp: hostname,
+      port: Number(window.location.port) || 80,
+      phoneUrl: `${window.location.origin}${window.location.pathname}`,
+    };
+    return cachedNetworkInfo;
+  }
+
+  return null;
+}
+
 /**
  * Generate compact share payload object and standalone URL
  */
 export function generateShareablePayload(
   nodes: MemoryNode[],
-  metadata: BoardMetadata = {}
+  metadata: BoardMetadata = {},
+  baseUrlOverride?: string
 ): {
   url: string;
   charLength: number;
@@ -118,7 +164,7 @@ export function generateShareablePayload(
 
   const jsonString = JSON.stringify(compactPayload);
   const compressed = LZString.compressToEncodedURIComponent(jsonString);
-  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
+  const baseUrl = baseUrlOverride || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '');
   const fullUrl = `${baseUrl}#b2=${compressed}`;
 
   return {
@@ -134,9 +180,10 @@ export function generateShareablePayload(
  */
 export function generateShareableUrl(
   nodes: MemoryNode[],
-  metadata: BoardMetadata = {}
+  metadata: BoardMetadata = {},
+  baseUrlOverride?: string
 ): { url: string; charLength: number; isLarge: boolean } {
-  return generateShareablePayload(nodes, metadata);
+  return generateShareablePayload(nodes, metadata, baseUrlOverride);
 }
 
 /**
@@ -145,15 +192,16 @@ export function generateShareableUrl(
  */
 export async function createShortShareLink(
   nodes: MemoryNode[],
-  metadata: BoardMetadata = {}
+  metadata: BoardMetadata = {},
+  baseUrlOverride?: string
 ): Promise<{
   shortUrl: string;
   code: string;
   standaloneUrl: string;
   isShortCreated: boolean;
 }> {
-  const { url: standaloneUrl, compactPayload } = generateShareablePayload(nodes, metadata);
-  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
+  const { url: standaloneUrl, compactPayload } = generateShareablePayload(nodes, metadata, baseUrlOverride);
+  const baseUrl = baseUrlOverride || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '');
 
   try {
     const res = await fetch('https://paste.rs', {
@@ -397,6 +445,76 @@ export function exportBoardToFile(nodes: MemoryNode[], metadata: BoardMetadata =
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Export board as a self-contained, standalone single-file HTML gift webpage (.html)
+ * that can be sent via WhatsApp, AirDrop, or email and opened on ANY device offline or online!
+ */
+export async function exportStandaloneGiftHtml(
+  nodes: MemoryNode[],
+  metadata: BoardMetadata = {}
+): Promise<boolean> {
+  const sanitized = nodes.map((node, idx) => sanitizeNode(node, idx));
+  const giftPayload: ShareableBoardData = {
+    version: CURRENT_BOARD_VERSION,
+    metadata,
+    nodes: sanitized,
+  };
+  const jsonString = JSON.stringify(giftPayload);
+
+  let templateHtml = '';
+  try {
+    const res = await fetch('/gift-template.html');
+    if (res.ok) {
+      templateHtml = await res.text();
+    }
+  } catch (err) {
+    console.warn('Could not fetch /gift-template.html:', err);
+  }
+
+  if (!templateHtml) {
+    // If template is unavailable, fallback to .memoryboard export
+    exportBoardToFile(nodes, metadata);
+    return false;
+  }
+
+  // Replace script tag in the template
+  const replacement = `<script id="standalone-gift-data" type="application/json">${jsonString.replace(/<\/script>/gi, '<\\/script>')}</script>`;
+  let finalHtml = templateHtml;
+
+  if (finalHtml.includes('<script id="standalone-gift-data" type="application/json"></script>')) {
+    finalHtml = finalHtml.replace(
+      '<script id="standalone-gift-data" type="application/json"></script>',
+      replacement
+    );
+  } else if (finalHtml.includes('<!-- STANDALONE_GIFT_DATA -->')) {
+    finalHtml = finalHtml.replace('<!-- STANDALONE_GIFT_DATA -->', replacement);
+  } else if (finalHtml.includes('<div id="root"></div>')) {
+    finalHtml = finalHtml.replace('<div id="root"></div>', `${replacement}<div id="root"></div>`);
+  } else {
+    finalHtml += replacement;
+  }
+
+  // Set customized document title
+  const recipient = metadata.recipientName || 'Sophia';
+  const customTitle = `${recipient}'s Memory Board — Constellation of Love`;
+  finalHtml = finalHtml.replace(/<title>.*?<\/title>/i, `<title>${customTitle}</title>`);
+
+  const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (metadata.recipientName || 'our-memories')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-');
+
+  a.href = url;
+  a.download = `${safeName || 'memory'}-gift.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return true;
 }
 
 /**

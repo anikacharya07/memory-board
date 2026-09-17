@@ -10,7 +10,7 @@ import { MemoryDetailModal } from './components/MemoryDetailModal';
 import { ShareBoardModal } from './components/ShareBoardModal';
 import { ClearModal } from './components/ClearModal';
 import { GiftWelcomeOverlay } from './components/GiftWelcomeOverlay';
-import { parseBoardFromUrl, loadBoardFromInput } from './utils/shareUtils';
+import { parseBoardFromUrl, loadBoardFromInput, sanitizeNode } from './utils/shareUtils';
 import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles, Gift, BookmarkCheck, Maximize2, Minimize2, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -19,6 +19,15 @@ const METADATA_KEY = 'romantic_memory_board_meta_v1';
 
 export function App() {
   const [metadata, setMetadata] = useState<BoardMetadata>(() => {
+    if (typeof document !== 'undefined') {
+      const embedded = document.getElementById('standalone-gift-data');
+      if (embedded && embedded.textContent?.trim()) {
+        try {
+          const gift = JSON.parse(embedded.textContent);
+          if (gift?.metadata) return gift.metadata;
+        } catch {}
+      }
+    }
     try {
       const saved = localStorage.getItem(METADATA_KEY);
       if (saved) return JSON.parse(saved);
@@ -30,6 +39,17 @@ export function App() {
   });
 
   const [nodes, setNodes] = useState<MemoryNode[]>(() => {
+    if (typeof document !== 'undefined') {
+      const embedded = document.getElementById('standalone-gift-data');
+      if (embedded && embedded.textContent?.trim()) {
+        try {
+          const gift = JSON.parse(embedded.textContent);
+          if (Array.isArray(gift?.nodes) && gift.nodes.length > 0) {
+            return gift.nodes.map((n: any, idx: number) => sanitizeNode(n, idx));
+          }
+        } catch {}
+      }
+    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved !== null) {
@@ -99,6 +119,16 @@ export function App() {
 
   // Listen to hashchange & popstate so shared links work immediately without reload
   useEffect(() => {
+    // Check if loaded from standalone gift HTML
+    if (typeof document !== 'undefined') {
+      const embedded = document.getElementById('standalone-gift-data');
+      if (embedded && embedded.textContent?.trim()) {
+        setIsViewingSharedBoard(true);
+        setIsWelcomeOverlayOpen(true);
+        return;
+      }
+    }
+
     loadBoardFromCurrentUrl();
     window.addEventListener('hashchange', loadBoardFromCurrentUrl);
     window.addEventListener('popstate', loadBoardFromCurrentUrl);

@@ -1,7 +1,34 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import type { MemoryNode, BoardMetadata } from '../types';
-import { createShortShareLink, exportBoardToFile, importBoardFromFile, generateQrCode } from '../utils/shareUtils';
-import { X, Copy, Check, QrCode, Download, Upload, Share2, Heart, MessageCircle, AlertCircle, KeyRound, Loader2, Sparkles } from 'lucide-react';
+import {
+  createShortShareLink,
+  exportBoardToFile,
+  importBoardFromFile,
+  generateQrCode,
+  exportStandaloneGiftHtml,
+  fetchNetworkInfo,
+  type NetworkInfo,
+} from '../utils/shareUtils';
+import {
+  X,
+  Copy,
+  Check,
+  QrCode,
+  Download,
+  Upload,
+  Share2,
+  Heart,
+  MessageCircle,
+  KeyRound,
+  Loader2,
+  Sparkles,
+  Smartphone,
+  Wifi,
+  Globe,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 
 interface ShareBoardModalProps {
   isOpen: boolean;
@@ -24,7 +51,7 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
-  const [activeTab, setActiveTab] = useState<'link' | 'qr' | 'open' | 'file'>('link');
+  const [activeTab, setActiveTab] = useState<'phone' | 'gift_html' | 'open' | 'file'>('phone');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [recipient, setRecipient] = useState(metadata.recipientName || '');
   const [sender, setSender] = useState(metadata.senderName || '');
@@ -34,12 +61,29 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
   const [isGeneratingShort, setIsGeneratingShort] = useState(false);
   const [shareUrlInfo, setShareUrlInfo] = useState({ url: '', charLength: 0, isLarge: false });
 
+  // Network and Custom Host state
+  const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
+  const [customHost, setCustomHost] = useState('');
+  const [showCustomHost, setShowCustomHost] = useState(false);
+
+  // Standalone HTML export state
+  const [isExportingHtml, setIsExportingHtml] = useState(false);
+  const [exportedHtmlSuccess, setExportedHtmlSuccess] = useState(false);
+
   // Open Board Tab state
   const [codeOrUrlInput, setCodeOrUrlInput] = useState('');
   const [isOpeningBoard, setIsOpeningBoard] = useState(false);
   const [openBoardStatus, setOpenBoardStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  // Update and generate short link when metadata or nodes change
+  // Fetch local network info on modal open
+  useEffect(() => {
+    if (!isOpen) return;
+    fetchNetworkInfo().then(info => {
+      if (info) setNetworkInfo(info);
+    });
+  }, [isOpen]);
+
+  // Update and generate link whenever metadata, customHost, or network info changes
   useEffect(() => {
     if (!isOpen) return;
 
@@ -50,8 +94,10 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
       giftMessage: giftMessage.trim() || undefined,
     };
 
+    const effectiveBaseUrl = customHost.trim() || networkInfo?.phoneUrl || undefined;
+
     setIsGeneratingShort(true);
-    createShortShareLink(nodes, updatedMeta)
+    createShortShareLink(nodes, updatedMeta, effectiveBaseUrl)
       .then(res => {
         setShortUrl(res.shortUrl);
         setShortCode(res.code);
@@ -73,7 +119,7 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
       .catch(() => {
         setIsGeneratingShort(false);
       });
-  }, [isOpen, nodes, recipient, sender, giftMessage]);
+  }, [isOpen, nodes, recipient, sender, giftMessage, customHost, networkInfo]);
 
   if (!isOpen) return null;
 
@@ -93,7 +139,6 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
         giftMessage: giftMessage.trim() || undefined,
       });
     } catch {
-      // Fallback if clipboard API fails
       try {
         const input = document.getElementById('share-link-input') as HTMLInputElement;
         if (input) {
@@ -112,8 +157,8 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
   const handleWhatsAppShare = () => {
     try {
       const shareUrl = shareUrlInfo.url;
-      // If URL is too long for WhatsApp query string, send link directly
-      const msg = `I made something special for you ❤️ View your memory board here:\n${shareUrl}`;
+      const toWhom = recipient.trim() ? ` for ${recipient.trim()}` : '';
+      const msg = `I made something special${toWhom} ❤️ View your memory board here:\n${shareUrl}`;
       const text = encodeURIComponent(msg);
       window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
     } catch (e) {
@@ -137,6 +182,27 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
     }
   };
 
+  const handleExportGiftHtml = async () => {
+    setIsExportingHtml(true);
+    setExportedHtmlSuccess(false);
+    try {
+      const ok = await exportStandaloneGiftHtml(nodes, {
+        ...metadata,
+        recipientName: recipient.trim() || undefined,
+        senderName: sender.trim() || undefined,
+        giftMessage: giftMessage.trim() || undefined,
+      });
+      if (ok) {
+        setExportedHtmlSuccess(true);
+        setTimeout(() => setExportedHtmlSuccess(false), 5000);
+      }
+    } catch (err) {
+      console.warn('Export gift html error:', err);
+    } finally {
+      setIsExportingHtml(false);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -152,7 +218,7 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/40 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white rounded-[24px] sm:rounded-[28px] shadow-2xl border border-neutral-100 p-4 sm:p-6 md:p-8 overflow-hidden max-h-[90dvh] overflow-y-auto">
+      <div className="relative w-full max-w-lg bg-white rounded-[24px] sm:rounded-[28px] shadow-2xl border border-neutral-100 p-4 sm:p-6 md:p-8 overflow-hidden max-h-[92dvh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-neutral-100">
           <div>
@@ -174,12 +240,12 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
           </button>
         </div>
 
-        {/* Personalized Gift Message (Optional) */}
+        {/* Personalized Gift Message */}
         <div className="mt-3 sm:mt-4 p-3 sm:p-4 rounded-2xl bg-pink-50/50 border border-pink-100/70 space-y-2.5 sm:space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[11px] sm:text-xs font-medium text-pink-900 lowercase flex items-center gap-1">
               <span>personalize greeting</span>
-              <span className="text-[9.5px] sm:text-[10px] text-pink-500 font-normal">(on open)</span>
+              <span className="text-[9.5px] sm:text-[10px] text-pink-500 font-normal">(appears when opened)</span>
             </span>
           </div>
 
@@ -219,153 +285,303 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="mt-4 flex rounded-xl bg-neutral-100 p-1 text-xs">
+        <div className="mt-4 grid grid-cols-4 rounded-xl bg-neutral-100 p-1 text-xs gap-1">
           <button
-            onClick={() => setActiveTab('link')}
-            className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
-              activeTab === 'link'
+            onClick={() => setActiveTab('phone')}
+            className={`py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
+              activeTab === 'phone'
                 ? 'bg-white text-neutral-800 shadow-sm'
                 : 'text-neutral-500 hover:text-neutral-700'
             }`}
           >
-            short link
+            <Smartphone className="w-3.5 h-3.5 text-pink-500" />
+            <span className="truncate">phone & wi-fi</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('gift_html')}
+            className={`py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
+              activeTab === 'gift_html'
+                ? 'bg-white text-pink-700 shadow-sm'
+                : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-pink-500" />
+            <span className="truncate">send gift (.html)</span>
           </button>
           <button
             onClick={() => setActiveTab('open')}
-            className={`flex-1 py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
+            className={`py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
               activeTab === 'open'
                 ? 'bg-white text-neutral-800 shadow-sm'
                 : 'text-neutral-500 hover:text-neutral-700'
             }`}
           >
             <KeyRound className="w-3.5 h-3.5" />
-            <span>open board</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('qr')}
-            className={`flex-1 py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
-              activeTab === 'qr'
-                ? 'bg-white text-neutral-800 shadow-sm'
-                : 'text-neutral-500 hover:text-neutral-700'
-            }`}
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>qr code</span>
+            <span className="truncate">open board</span>
           </button>
           <button
             onClick={() => setActiveTab('file')}
-            className={`flex-1 py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
+            className={`py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
               activeTab === 'file'
                 ? 'bg-white text-neutral-800 shadow-sm'
                 : 'text-neutral-500 hover:text-neutral-700'
             }`}
           >
             <Download className="w-3.5 h-3.5" />
-            <span>backup file</span>
+            <span className="truncate">backup</span>
           </button>
         </div>
 
         {/* Tab Content */}
         <div className="mt-4">
-          {activeTab === 'link' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-medium text-neutral-700 lowercase">
-                  short shareable web link:
-                </label>
-                {isGeneratingShort && (
-                  <span className="text-[10.5px] text-pink-600 flex items-center gap-1 font-light">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>creating short link...</span>
-                  </span>
-                )}
+          {/* TAB 1: PHONE & WI-FI LINK */}
+          {activeTab === 'phone' && (
+            <div className="space-y-3.5">
+              {/* Network status notice */}
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50/70 border border-emerald-200/80 text-xs text-emerald-900 flex items-start gap-2.5 shadow-xs">
+                <div className="mt-0.5 p-1 rounded-full bg-emerald-500 text-white shrink-0 animate-pulse">
+                  <Wifi className="w-3 h-3" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-emerald-950 flex items-center gap-1.5">
+                    <span>phone & tablet ready on wi-fi</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-mono">
+                      {networkInfo?.localIp ? `${networkInfo.localIp}:${networkInfo.port}` : 'live'}
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-emerald-800/90 font-light mt-0.5 leading-relaxed">
+                    Scan with her phone camera or send this link. Both devices must be on the same Wi-Fi.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex gap-2">
-                <input
-                  id="share-link-input"
-                  type="text"
-                  readOnly
-                  value={shortUrl || shareUrlInfo.url}
-                  className="flex-1 px-3.5 py-2 text-xs font-mono rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700 select-all focus:outline-none focus:bg-white focus:ring-1 focus:ring-pink-400 truncate"
-                />
-                <button
-                  onClick={handleCopy}
-                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 ${
-                    copied
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-neutral-900 hover:bg-neutral-800 text-white shadow-sm'
-                  }`}
-                >
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copied ? 'copied!' : 'copy'}</span>
-                </button>
+              {/* Shareable Link Input */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-medium text-neutral-700 lowercase">
+                    phone-accessible link:
+                  </label>
+                  {isGeneratingShort && (
+                    <span className="text-[10.5px] text-pink-600 flex items-center gap-1 font-light">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>creating short link...</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    id="share-link-input"
+                    type="text"
+                    readOnly
+                    value={shortUrl || shareUrlInfo.url}
+                    className="flex-1 px-3.5 py-2 text-xs font-mono rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700 select-all focus:outline-none focus:bg-white focus:ring-1 focus:ring-pink-400 truncate"
+                  />
+                  <button
+                    onClick={handleCopy}
+                    className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 ${
+                      copied
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-neutral-900 hover:bg-neutral-800 text-white shadow-sm'
+                    }`}
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'copied!' : 'copy'}</span>
+                  </button>
+                </div>
               </div>
 
-              {/* 5-Letter Passcode Card */}
-              {shortCode && (
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-pink-50 to-rose-50/70 border border-pink-200/80 shadow-sm">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-white shadow-xs text-pink-600">
-                      <KeyRound className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] tracking-wider uppercase font-semibold text-pink-600/90 block">
-                        gift passcode
-                      </span>
-                      <span className="font-mono text-base font-bold text-neutral-800 tracking-widest select-all">
-                        {shortCode}
-                      </span>
-                    </div>
+              {/* QR Code and Passcode Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center pt-1">
+                {/* QR Code */}
+                <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-neutral-50 border border-neutral-200/80 text-center space-y-2">
+                  <div className="p-2 bg-white rounded-xl shadow-xs border border-neutral-100">
+                    {qrDataUrl ? (
+                      <img src={qrDataUrl} alt="QR Code" className="w-32 h-32 rounded-md" />
+                    ) : (
+                      <div className="w-32 h-32 flex items-center justify-center text-xs text-neutral-400">
+                        {isGeneratingShort ? 'generating...' : 'qr ready'}
+                      </div>
+                    )}
                   </div>
-                  <button
-                    onClick={() => {
-                      if (navigator.clipboard) {
-                        navigator.clipboard.writeText(shortCode);
-                        setCopiedCode(true);
-                        setTimeout(() => setCopiedCode(false), 2000);
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-xl border border-pink-200 bg-white hover:bg-pink-50 text-[11px] font-medium text-pink-700 transition-colors shadow-xs active:scale-95"
-                  >
-                    {copiedCode ? 'copied code!' : 'copy code'}
-                  </button>
-                </div>
-              )}
-
-              {shareUrlInfo.isLarge && (
-                <div className="flex items-start gap-1.5 p-2.5 rounded-xl bg-amber-50 text-amber-800 text-[11px]">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
-                  <span>
-                    Note: For very large media collections, downloading the .memoryboard file in the "Backup File" tab is also recommended!
+                  <span className="text-[11px] text-neutral-600 font-medium lowercase flex items-center gap-1">
+                    <QrCode className="w-3 h-3 text-pink-500" />
+                    <span>scan with phone camera</span>
                   </span>
                 </div>
-              )}
 
-              {/* Quick Share Buttons */}
-              <div className="pt-1 flex items-center gap-2">
+                {/* 5-Letter Passcode Card */}
+                <div className="flex flex-col justify-between p-3.5 rounded-2xl bg-gradient-to-br from-pink-50/80 to-rose-50/60 border border-pink-200/70 h-full min-h-[160px] space-y-3">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="p-1.5 rounded-lg bg-white shadow-xs text-pink-600">
+                        <KeyRound className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-[10px] tracking-wider uppercase font-semibold text-pink-600/90">
+                        5-letter gift code
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-600 font-light leading-snug">
+                      If she opens this app on her device, she can simply type this code in "Open Board":
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-white/90 border border-pink-100">
+                    <span className="font-mono text-lg font-bold text-neutral-800 tracking-widest px-1 select-all">
+                      {shortCode || '...'}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (shortCode && navigator.clipboard) {
+                          navigator.clipboard.writeText(shortCode);
+                          setCopiedCode(true);
+                          setTimeout(() => setCopiedCode(false), 2000);
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg border border-pink-200 bg-pink-50/60 hover:bg-pink-100 text-[10.5px] font-medium text-pink-700 transition-colors"
+                    >
+                      {copiedCode ? 'copied!' : 'copy code'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      onClick={handleWhatsAppShare}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-medium transition-colors"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>whatsapp</span>
+                    </button>
+                    {'share' in navigator && (
+                      <button
+                        onClick={handleNativeShare}
+                        className="p-1.5 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-600 transition-colors"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional Custom Domain / Public Host Toggle */}
+              <div className="pt-1 border-t border-neutral-100">
                 <button
-                  onClick={handleWhatsAppShare}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs transition-colors"
+                  onClick={() => setShowCustomHost(!showCustomHost)}
+                  className="flex items-center justify-between w-full text-[11px] text-neutral-500 hover:text-neutral-700 py-1 transition-colors"
                 >
-                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>share via whatsapp</span>
+                  <span className="flex items-center gap-1">
+                    <Globe className="w-3 h-3 text-neutral-400" />
+                    <span>using a public tunnel or custom domain? (optional)</span>
+                  </span>
+                  {showCustomHost ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
 
-                {'share' in navigator && (
-                  <button
-                    onClick={handleNativeShare}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200 bg-neutral-50 hover:bg-neutral-100 text-neutral-700 text-xs transition-colors"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                    <span>share...</span>
-                  </button>
+                {showCustomHost && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-neutral-50 border border-neutral-200 space-y-1.5">
+                    <label className="block text-[10.5px] text-neutral-600">
+                      custom base url (e.g. <code>https://my-subdomain.loca.lt</code> or public host):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. https://our-memory-board.surge.sh"
+                      value={customHost}
+                      onChange={e => setCustomHost(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-neutral-200 bg-white focus:outline-none focus:ring-1 focus:ring-pink-400"
+                    />
+                  </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Open Board by Passcode or Link */}
+          {/* TAB 2: STANDALONE GIFT WEBPAGE (.HTML) */}
+          {activeTab === 'gift_html' && (
+            <div className="space-y-4 p-1">
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-pink-500/10 via-rose-500/5 to-purple-500/10 border border-pink-200/80 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-white shadow-xs text-pink-600">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-semibold text-pink-950 uppercase tracking-wider">
+                      fail-proof gift file • works anywhere
+                    </h4>
+                    <span className="text-[11px] text-pink-700 font-light">
+                      No Wi-Fi or server needed! 100% offline & mobile ready.
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-neutral-600 leading-relaxed font-light pt-1">
+                  Download a single, self-contained <code className="px-1.5 py-0.5 rounded bg-white border border-pink-200 font-mono text-pink-700 font-medium">.html</code> webpage with all your polaroids, strings, music synthesizer, love greeting, and photos embedded inside!
+                </p>
+              </div>
+
+              {/* 3 Steps */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2.5 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <span className="w-5 h-5 rounded-full bg-pink-100 text-pink-600 text-[10px] font-bold inline-flex items-center justify-center mb-1">
+                    1
+                  </span>
+                  <p className="text-[10.5px] font-medium text-neutral-700 lowercase">download</p>
+                  <p className="text-[9.5px] text-neutral-400 font-light">get .html file</p>
+                </div>
+                <div className="p-2.5 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <span className="w-5 h-5 rounded-full bg-pink-100 text-pink-600 text-[10px] font-bold inline-flex items-center justify-center mb-1">
+                    2
+                  </span>
+                  <p className="text-[10.5px] font-medium text-neutral-700 lowercase">send</p>
+                  <p className="text-[9.5px] text-neutral-400 font-light">via whatsapp/airdrop</p>
+                </div>
+                <div className="p-2.5 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <span className="w-5 h-5 rounded-full bg-pink-100 text-pink-600 text-[10px] font-bold inline-flex items-center justify-center mb-1">
+                    3
+                  </span>
+                  <p className="text-[10.5px] font-medium text-neutral-700 lowercase">she taps</p>
+                  <p className="text-[9.5px] text-neutral-400 font-light">plays on her phone!</p>
+                </div>
+              </div>
+
+              {/* Export Button */}
+              <div className="pt-2">
+                <button
+                  onClick={handleExportGiftHtml}
+                  disabled={isExportingHtml}
+                  className={`w-full py-3 px-4 rounded-2xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 ${
+                    exportedHtmlSuccess
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white'
+                  }`}
+                >
+                  {isExportingHtml ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>packaging gift webpage...</span>
+                    </>
+                  ) : exportedHtmlSuccess ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>gift webpage downloaded! ready to send ❤️</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>
+                        download {recipient ? `${recipient}'s` : 'standalone'} gift webpage (.html)
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-neutral-50 border border-neutral-100 text-[11px] text-neutral-500 font-light text-center leading-relaxed">
+                💡 Works on Safari (iPhone), Chrome (Android), Mac, and Windows. Even works offline on airplane mode!
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: OPEN BOARD BY CODE OR LINK */}
           {activeTab === 'open' && (
             <div className="space-y-3 p-1">
               <div>
@@ -422,37 +638,21 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
               </div>
 
               <div className="p-3 rounded-2xl bg-neutral-50 border border-neutral-200/80 text-[11.5px] text-neutral-600 leading-relaxed">
-                <p className="font-medium text-neutral-800 lowercase mb-0.5">tip:</p>
+                <p className="font-medium text-neutral-800 lowercase mb-0.5">how it works:</p>
                 <p className="font-light lowercase">
-                  you can type a 5-letter gift code (like <code className="px-1.5 py-0.5 rounded bg-white border border-neutral-200 font-mono text-pink-600 font-semibold">b55hG</code>) or paste any shared memory board link to view it instantly!
+                  If both of you have the memory board web app open, you don't even need to send a long link. Just tell her the 5-letter code (like <code className="px-1.5 py-0.5 rounded bg-white border border-neutral-200 font-mono text-pink-600 font-semibold">{shortCode || 'b55hG'}</code>) and she can load it right here!
                 </p>
               </div>
             </div>
           )}
 
-          {activeTab === 'qr' && (
-            <div className="flex flex-col items-center justify-center p-3 text-center space-y-3">
-              <div className="p-3 bg-white rounded-2xl shadow-md border border-neutral-100">
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="QR Code" className="w-48 h-48 rounded-lg" />
-                ) : (
-                  <div className="w-48 h-48 flex items-center justify-center text-xs text-neutral-400">
-                    {isGeneratingShort ? 'creating qr...' : 'generating qr...'}
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-neutral-500 lowercase max-w-xs">
-                she can scan this with her phone camera to open her memory board instantly!
-              </p>
-            </div>
-          )}
-
+          {/* TAB 4: BACKUP FILE */}
           {activeTab === 'file' && (
             <div className="space-y-3 p-1">
               <div className="flex items-center justify-between p-3.5 rounded-2xl border border-neutral-200 bg-neutral-50/60">
                 <div>
                   <p className="text-xs font-medium text-neutral-800 lowercase">export board file</p>
-                  <p className="text-[11px] text-neutral-400 lowercase">save a full offline copy (.memoryboard)</p>
+                  <p className="text-[11px] text-neutral-400 lowercase">save a full raw copy (.memoryboard)</p>
                 </div>
                 <button
                   onClick={() => exportBoardToFile(nodes, { ...metadata, recipientName: recipient, senderName: sender, giftMessage })}
