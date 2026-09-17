@@ -32,3 +32,18 @@ export interface DragState {
   initialNodeX: number;
   initialNodeY: number;
 }
+
+export interface BoardMetadata {
+  title?: string;
+  subtitle?: string;
+  recipientName?: string;
+  senderName?: string;
+  giftMessage?: string;
+  createdDate?: string;
+}
+
+export interface ShareableBoardData {
+  version: number;
+  metadata: BoardMetadata;
+  nodes: MemoryNode[];
+}

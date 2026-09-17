@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { MemoryNode, DragState } from './types';
+import type { MemoryNode, DragState, BoardMetadata } from './types';
 import { DEFAULT_MEMORIES } from './data/defaultMemories';
 import { audioEngine } from './utils/audioEngine';
 import { StringCanvas } from './components/StringCanvas';
@@ -7,13 +7,37 @@ import { MemoryCard } from './components/MemoryCard';
 import { CentralHub } from './components/CentralHub';
 import { AddMemoryModal } from './components/AddMemoryModal';
 import { MemoryDetailModal } from './components/MemoryDetailModal';
-import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles } from 'lucide-react';
+import { ShareBoardModal } from './components/ShareBoardModal';
+import { GiftWelcomeOverlay } from './components/GiftWelcomeOverlay';
+import { parseBoardFromUrl } from './utils/shareUtils';
+import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles, Gift, BookmarkCheck } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const STORAGE_KEY = 'romantic_memory_board_nodes_v1';
+const METADATA_KEY = 'romantic_memory_board_meta_v1';
 
 export function App() {
+  // Check if board was loaded via share link (hash #board=...)
+  const initialSharedData = useRef(parseBoardFromUrl()).current;
+
+  const [metadata, setMetadata] = useState<BoardMetadata>(() => {
+    if (initialSharedData?.metadata) {
+      return initialSharedData.metadata;
+    }
+    try {
+      const saved = localStorage.getItem(METADATA_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      title: 'the board',
+      subtitle: 'memories, on a string',
+    };
+  });
+
   const [nodes, setNodes] = useState<MemoryNode[]>(() => {
+    if (initialSharedData?.nodes && Array.isArray(initialSharedData.nodes)) {
+      return initialSharedData.nodes;
+    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -31,9 +55,13 @@ export function App() {
   const [hubActiveMemory, setHubActiveMemory] = useState<MemoryNode | null>(null);
   const [isDragOverHub, setIsDragOverHub] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isWelcomeOverlayOpen, setIsWelcomeOverlayOpen] = useState(Boolean(initialSharedData));
+  const [isViewingSharedBoard, setIsViewingSharedBoard] = useState(Boolean(initialSharedData));
   const [detailModalNode, setDetailModalNode] = useState<MemoryNode | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [savedNotification, setSavedNotification] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -59,12 +87,15 @@ export function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Save to LocalStorage on change
+  // Save to LocalStorage on change (only if not viewing a temporary shared link)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
-    } catch {}
-  }, [nodes]);
+    if (!isViewingSharedBoard) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
+        localStorage.setItem(METADATA_KEY, JSON.stringify(metadata));
+      } catch {}
+    }
+  }, [nodes, metadata, isViewingSharedBoard]);
 
   // Unlock Web Audio on any initial interaction
   const handleUserGesture = useCallback(() => {
@@ -127,7 +158,6 @@ export function App() {
       nodeCenterY <= hubPos.y + hubPos.height + margin;
 
     setIsDragOverHub(isOverHub);
-
   };
 
   // Pointer up to finish drag
@@ -158,7 +188,7 @@ export function App() {
     setIsDragOverHub(false);
   };
 
-  // Card Hover Sound Controls (Crucial Feature)
+  // Card Hover Sound Controls
   const handleCardHoverStart = (node: MemoryNode) => {
     if (dragState) return;
     setActiveHoverId(node.id);
@@ -172,7 +202,6 @@ export function App() {
     if (activeHoverId === node.id) {
       setActiveHoverId(null);
     }
-    // If this node is not docked in the central hub, fade out its sound
     if (hubActiveMemory?.id !== node.id) {
       if (activeSoundNodeId === node.id) {
         setActiveSoundNodeId(null);
@@ -186,12 +215,10 @@ export function App() {
     data: Omit<MemoryNode, 'id' | 'x' | 'y' | 'rotation' | 'width' | 'height' | 'connectedTo'>
   ) => {
     const id = `mem-${Date.now()}`;
-    // Position near the top-center or slightly staggered
     const randomOffset = (Math.random() - 0.5) * 120;
     const newX = Math.min(Math.max(hubPos.x + randomOffset, 100), canvasDimensions.width - 240);
     const newY = Math.min(Math.max(hubPos.y - 180 + randomOffset, 100), canvasDimensions.height - 240);
 
-    // Connect to 2 closest nodes or hub
     const closestNodes = [...nodes]
       .sort((a, b) => {
         const da = Math.hypot(a.x - newX, a.y - newY);
@@ -214,7 +241,6 @@ export function App() {
 
     setNodes(prev => [newNode, ...prev]);
 
-    // Play subtle chime & trigger confetti
     confetti({
       particleCount: 30,
       spread: 45,
@@ -243,6 +269,36 @@ export function App() {
     audioEngine.stopAll();
     setHubActiveMemory(null);
     setNodes(DEFAULT_MEMORIES);
+    setMetadata({ title: 'the board', subtitle: 'memories, on a string' });
+    setIsViewingSharedBoard(false);
+    window.location.hash = '';
+  };
+
+  const handleSaveSharedBoardToDevice = () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
+      localStorage.setItem(METADATA_KEY, JSON.stringify(metadata));
+      setIsViewingSharedBoard(false);
+      window.location.hash = '';
+      setSavedNotification(true);
+      setTimeout(() => setSavedNotification(false), 3000);
+    } catch {}
+  };
+
+  const handleImportBoard = (importedNodes: MemoryNode[], importedMeta: BoardMetadata) => {
+    setNodes(importedNodes);
+    setMetadata(importedMeta);
+    setIsViewingSharedBoard(false);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(importedNodes));
+      localStorage.setItem(METADATA_KEY, JSON.stringify(importedMeta));
+    } catch {}
+    confetti({
+      particleCount: 50,
+      spread: 60,
+      origin: { y: 0.5 },
+      colors: ['#f472b6', '#fda4af', '#fbcfe8'],
+    });
   };
 
   const toggleMute = () => {
@@ -272,15 +328,56 @@ export function App() {
         <div className="absolute top-[75%] right-[15%] w-1.5 h-1.5 rounded-full bg-rose-300/30 blur-[0.8px] animate-float-particle" style={{ animationDuration: '11s', animationDelay: '3s' }} />
       </div>
 
+      {/* Top Banner: Shared Board Notification */}
+      {isViewingSharedBoard && (
+        <div className="fixed top-0 inset-x-0 z-50 bg-gradient-to-r from-pink-500/90 via-rose-500/90 to-pink-600/90 text-white px-4 py-2 text-xs flex items-center justify-between shadow-md backdrop-blur-md">
+          <span className="flex items-center gap-1.5 font-light">
+            <Gift className="w-3.5 h-3.5" />
+            <span>
+              {metadata.recipientName
+                ? `gifted to ${metadata.recipientName}`
+                : 'viewing a shared memory board'}
+            </span>
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSaveSharedBoardToDevice}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white text-pink-700 font-medium hover:bg-pink-50 transition-colors"
+            >
+              <BookmarkCheck className="w-3 h-3" />
+              <span>save to my device</span>
+            </button>
+            <button
+              onClick={handleResetDefault}
+              className="px-2.5 py-1 text-white/80 hover:text-white transition-colors"
+            >
+              exit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Save Success Toast Notification */}
+      {savedNotification && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/90 text-white px-4 py-2 rounded-full text-xs flex items-center gap-2 shadow-xl animate-fadeIn">
+          <BookmarkCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>saved to your device!</span>
+        </div>
+      )}
+
       {/* Top Header & Minimalist Controls (Top Left & Top Right) */}
-      <header className="fixed top-0 left-0 right-0 z-40 px-7 py-6 flex items-center justify-between pointer-events-none">
+      <header
+        className={`fixed left-0 right-0 z-40 px-7 py-6 flex items-center justify-between pointer-events-none transition-all ${
+          isViewingSharedBoard ? 'top-8' : 'top-0'
+        }`}
+      >
         {/* Top Left: the board / memories, on a string */}
         <div className="pointer-events-auto">
           <h1 className="text-[22px] font-normal tracking-[-0.03em] text-neutral-800 lowercase font-sans">
-            the board
+            {metadata.title || 'the board'}
           </h1>
           <p className="text-[12.5px] text-neutral-400 font-light lowercase tracking-tight mt-0.5">
-            memories, on a string
+            {metadata.subtitle || 'memories, on a string'}
           </p>
         </div>
 
@@ -297,6 +394,16 @@ export function App() {
             title={isMuted ? 'Unmute sound' : 'Mute sound'}
           >
             {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Share / Gift Board Button */}
+          <button
+            onClick={() => setIsShareModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-pink-200 bg-pink-50/85 hover:bg-pink-100/90 text-pink-700 text-xs md:text-[13px] font-medium shadow-[0_2px_8px_rgba(244,114,182,0.15)] hover:shadow-md transition-all active:scale-95"
+            title="Share or gift this board"
+          >
+            <Gift className="w-3.5 h-3.5 text-pink-600" />
+            <span>share board</span>
           </button>
 
           {/* Reset button (shown if memories were cleared or altered) */}
@@ -335,7 +442,7 @@ export function App() {
       </header>
 
       {/* Floating Audio Interaction Prompt (Unobtrusive) */}
-      {!hasInteracted && (
+      {!hasInteracted && !isWelcomeOverlayOpen && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900/85 text-white/90 backdrop-blur-xl px-4 py-2 rounded-full text-xs flex items-center gap-2 shadow-[0_10px_30px_rgba(0,0,0,0.15)] ring-1 ring-white/10 animate-pulse pointer-events-none">
           <Sparkles className="w-3.5 h-3.5 text-pink-300" />
           <span>click anywhere or hover a memory to explore sound</span>
@@ -393,6 +500,26 @@ export function App() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAdd={handleAddMemory}
+      />
+
+      {/* Share / Gift Board Modal */}
+      <ShareBoardModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        nodes={nodes}
+        metadata={metadata}
+        onUpdateMetadata={setMetadata}
+        onImportBoard={handleImportBoard}
+      />
+
+      {/* Gift Welcome Overlay (shown when opening via a shared link) */}
+      <GiftWelcomeOverlay
+        isOpen={isWelcomeOverlayOpen}
+        metadata={metadata}
+        onOpenBoard={() => {
+          setIsWelcomeOverlayOpen(false);
+          handleUserGesture();
+        }}
       />
 
       {/* Detail Scrapbook Modal */}
