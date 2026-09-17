@@ -8,6 +8,7 @@ import { CentralHub } from './components/CentralHub';
 import { AddMemoryModal } from './components/AddMemoryModal';
 import { MemoryDetailModal } from './components/MemoryDetailModal';
 import { ShareBoardModal } from './components/ShareBoardModal';
+import { ClearModal } from './components/ClearModal';
 import { GiftWelcomeOverlay } from './components/GiftWelcomeOverlay';
 import { parseBoardFromUrl } from './utils/shareUtils';
 import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles, Gift, BookmarkCheck, Maximize2, Minimize2 } from 'lucide-react';
@@ -40,9 +41,9 @@ export function App() {
     }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
     return DEFAULT_MEMORIES;
@@ -56,6 +57,7 @@ export function App() {
   const [isDragOverHub, setIsDragOverHub] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isWelcomeOverlayOpen, setIsWelcomeOverlayOpen] = useState(Boolean(initialSharedData));
   const [isViewingSharedBoard, setIsViewingSharedBoard] = useState(Boolean(initialSharedData));
   const [detailModalNode, setDetailModalNode] = useState<MemoryNode | null>(null);
@@ -69,6 +71,7 @@ export function App() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const homePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
 
   // Central Hub Position & Dimensions
   const hubWidth = 180;
@@ -135,6 +138,11 @@ export function App() {
     const container = containerRef.current;
     if (!container) return;
 
+    // Save home position if not currently docked in the hub
+    if (!homePositionsRef.current[node.id] && hubActiveMemory?.id !== node.id) {
+      homePositionsRef.current[node.id] = { x: node.x, y: node.y };
+    }
+
     const rect = container.getBoundingClientRect();
     const pointerX = e.clientX - rect.left;
     const pointerY = e.clientY - rect.top;
@@ -174,7 +182,7 @@ export function App() {
     // Collision check with Central Hub (with magnetic margin)
     const nodeCenterX = newX + targetNode.width / 2;
     const nodeCenterY = newY + targetNode.height / 2;
-    const margin = 45;
+    const margin = 50;
     const isOverHub =
       nodeCenterX >= hubPos.x - margin &&
       nodeCenterX <= hubPos.x + hubPos.width + margin &&
@@ -184,18 +192,47 @@ export function App() {
     setIsDragOverHub(isOverHub);
   };
 
-  // Pointer up to finish drag
+  // Pointer up to finish drag: Dock into hub or remove from hub
   const handlePointerUp = () => {
     if (!dragState) return;
 
-    if (isDragOverHub) {
-      const droppedNode = nodes.find(n => n.id === dragState.nodeId);
-      if (droppedNode) {
-        setHubActiveMemory(droppedNode);
-        setActiveSoundNodeId(droppedNode.id);
-        audioEngine.playMemory(droppedNode.id, droppedNode.audioPreset, droppedNode.audioUrl);
+    const draggedNode = nodes.find(n => n.id === dragState.nodeId);
+    if (!draggedNode) {
+      setDragState(null);
+      setIsDragOverHub(false);
+      return;
+    }
 
-        // Gentle celebratory confetti
+    const isCardCurrentlyInHub = hubActiveMemory?.id === draggedNode.id;
+
+    if (isDragOverHub) {
+      // DOCK CARD IN CENTRAL HUB
+      const dockedX = hubPos.x + (hubPos.width - draggedNode.width) / 2;
+      const dockedY = hubPos.y + (hubPos.height - draggedNode.height) / 2;
+
+      // If a different card was already in the central hub, return that previous card to its home position
+      const prevCard = hubActiveMemory;
+
+      setNodes(prev =>
+        prev.map(n => {
+          if (n.id === draggedNode.id) {
+            return { ...n, x: dockedX, y: dockedY, rotation: 0 };
+          }
+          if (prevCard && n.id === prevCard.id && prevCard.id !== draggedNode.id) {
+            const home = homePositionsRef.current[prevCard.id] || { x: hubPos.x - 190, y: hubPos.y };
+            return { ...n, x: home.x, y: home.y };
+          }
+          return n;
+        })
+      );
+
+      // Play the song associated with this card continuously
+      setHubActiveMemory(draggedNode);
+      setActiveSoundNodeId(draggedNode.id);
+      audioEngine.playMemory(draggedNode.id, draggedNode.audioPreset, draggedNode.audioUrl);
+
+      // Celebratory confetti if newly dragged in
+      if (!isCardCurrentlyInHub) {
         confetti({
           particleCount: 40,
           spread: 55,
@@ -206,16 +243,31 @@ export function App() {
           colors: ['#f472b6', '#fb7185', '#fbcfe8', '#fda4af'],
         });
       }
+    } else {
+      // Released OUTSIDE the central hub:
+      // If this card was currently docked in the hub, it is now REMOVED!
+      if (isCardCurrentlyInHub) {
+        audioEngine.stopMemory(draggedNode.id, 350);
+        setHubActiveMemory(null);
+        setActiveSoundNodeId(null);
+      }
     }
 
     setDragState(null);
     setIsDragOverHub(false);
   };
 
-  // Card Hover Sound Controls (Desktop)
+  // Card Hover Sound Controls
   const handleCardHoverStart = (node: MemoryNode) => {
     if (dragState) return;
     setActiveHoverId(node.id);
+
+    // If a card is in the central box, its song plays persistently!
+    if (hubActiveMemory) {
+      return;
+    }
+
+    // Otherwise normal hover audio preview when central box is empty
     setActiveSoundNodeId(node.id);
     handleUserGesture();
     audioEngine.playMemory(node.id, node.audioPreset, node.audioUrl, 280);
@@ -226,28 +278,61 @@ export function App() {
     if (activeHoverId === node.id) {
       setActiveHoverId(null);
     }
-    if (hubActiveMemory?.id !== node.id) {
-      if (activeSoundNodeId === node.id) {
-        setActiveSoundNodeId(null);
-      }
-      audioEngine.stopMemory(node.id, 320);
+    // If a card is in the central box, never stop its song
+    if (hubActiveMemory) {
+      return;
     }
+    if (activeSoundNodeId === node.id) {
+      setActiveSoundNodeId(null);
+    }
+    audioEngine.stopMemory(node.id, 320);
   };
 
-  // Card Tap / Click Behavior (Touch-Optimized)
+  // Card Tap / Click Behavior
   const handleCardClick = (clickedNode: MemoryNode) => {
     if (dragState) return;
     handleUserGesture();
 
-    // If on mobile or not playing, first tap plays sound
+    // If a card is in the central box, clicking opens the detail modal
+    if (hubActiveMemory) {
+      setDetailModalNode(clickedNode);
+      return;
+    }
+
+    // Normal tap-to-play when hub is empty
     if (activeSoundNodeId !== clickedNode.id) {
       audioEngine.playMemory(clickedNode.id, clickedNode.audioPreset, clickedNode.audioUrl);
       setActiveSoundNodeId(clickedNode.id);
       setActiveHoverId(clickedNode.id);
     } else {
-      // Second tap on the active memory opens the romantic detail modal
       setDetailModalNode(clickedNode);
     }
+  };
+
+  // Eject/remove memory from central hub
+  const handleClearHub = () => {
+    if (hubActiveMemory) {
+      const memoryId = hubActiveMemory.id;
+      const home = homePositionsRef.current[memoryId] || { x: hubPos.x - 190, y: hubPos.y };
+
+      // Return card back to outside the hub
+      setNodes(prev =>
+        prev.map(n => (n.id === memoryId ? { ...n, x: home.x, y: home.y } : n))
+      );
+
+      audioEngine.stopMemory(memoryId, 350);
+      setHubActiveMemory(null);
+      setActiveSoundNodeId(null);
+    }
+  };
+
+  // Clear all memories from the board
+  const handleClearEntireBoard = () => {
+    audioEngine.stopAll();
+    setHubActiveMemory(null);
+    setActiveSoundNodeId(null);
+    setNodes([]);
+    homePositionsRef.current = {};
   };
 
   // Add new memory to board
@@ -297,20 +382,14 @@ export function App() {
     setNodes(prev => prev.filter(n => n.id !== id));
   };
 
-  const handleClearBoard = () => {
-    if (window.confirm('Clear all memories from the board? You can restore them anytime with "reset".')) {
-      audioEngine.stopAll();
-      setHubActiveMemory(null);
-      setNodes([]);
-    }
-  };
-
   const handleResetDefault = () => {
     audioEngine.stopAll();
     setHubActiveMemory(null);
+    setActiveSoundNodeId(null);
     setNodes(DEFAULT_MEMORIES);
     setMetadata({ title: 'the board', subtitle: 'memories, on a string' });
     setIsViewingSharedBoard(false);
+    homePositionsRef.current = {};
     window.location.hash = '';
   };
 
@@ -329,6 +408,7 @@ export function App() {
     setNodes(importedNodes);
     setMetadata(importedMeta);
     setIsViewingSharedBoard(false);
+    homePositionsRef.current = {};
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(importedNodes));
       localStorage.setItem(METADATA_KEY, JSON.stringify(importedMeta));
@@ -410,7 +490,7 @@ export function App() {
           </p>
         </div>
 
-        {/* Top Right Controls */}
+        {/* Top Right Controls (Matching Reference Screenshot: + add memory & clear) */}
         <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
           {/* Sound Toggle Indicator */}
           <button
@@ -436,7 +516,7 @@ export function App() {
             <span className="sm:hidden">share</span>
           </button>
 
-          {/* Reset button */}
+          {/* Restore sample memories button (visible when board is modified or cleared) */}
           {nodes.length < DEFAULT_MEMORIES.length && (
             <button
               onClick={handleResetDefault}
@@ -444,21 +524,19 @@ export function App() {
               title="Restore sample memories"
             >
               <RotateCcw className="w-3 h-3 text-neutral-500" />
-              <span className="hidden sm:inline">restore</span>
+              <span>restore</span>
             </button>
           )}
 
-          {/* Clear Board Button */}
-          {nodes.length > 0 && (
-            <button
-              onClick={handleClearBoard}
-              className="p-1.5 sm:px-3 sm:py-1.5 rounded-full border border-transparent hover:border-neutral-200/70 hover:bg-white/80 text-neutral-400 hover:text-neutral-700 transition-all"
-              title="Clear all cards"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-xs ml-1">clear</span>
-            </button>
-          )}
+          {/* Clear Button (Always accessible, opens clear modal) */}
+          <button
+            onClick={() => setIsClearModalOpen(true)}
+            className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border border-neutral-200/80 bg-white/80 hover:bg-white text-xs text-neutral-500 hover:text-neutral-800 shadow-sm transition-all active:scale-95"
+            title={hubActiveMemory ? 'Clear central box or board' : 'Clear board'}
+          >
+            <Trash2 className="w-3.5 h-3.5 text-neutral-500" />
+            <span>clear</span>
+          </button>
 
           {/* + Add Memory Button */}
           <button
@@ -473,10 +551,10 @@ export function App() {
       </header>
 
       {/* Floating Audio Interaction Prompt (Unobtrusive) */}
-      {!hasInteracted && !isWelcomeOverlayOpen && (
+      {!hasInteracted && !isWelcomeOverlayOpen && !hubActiveMemory && (
         <div className="fixed bottom-14 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900/85 text-white/90 backdrop-blur-xl px-4 py-2 rounded-full text-[11px] sm:text-xs flex items-center gap-2 shadow-[0_10px_30px_rgba(0,0,0,0.15)] ring-1 ring-white/10 animate-pulse pointer-events-none whitespace-nowrap">
           <Sparkles className="w-3.5 h-3.5 text-pink-300 shrink-0" />
-          <span>tap any memory to hear its soundtrack</span>
+          <span>drag a memory to the central box to play its song</span>
         </div>
       )}
 
@@ -501,6 +579,31 @@ export function App() {
             </>
           )}
         </button>
+      )}
+
+      {/* Empty Board State Helper */}
+      {nodes.length === 0 && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-white/80 backdrop-blur-md border border-neutral-200/80 shadow-md max-w-sm">
+          <Trash2 className="w-6 h-6 text-neutral-400 mb-2" />
+          <p className="text-sm font-medium text-neutral-700 lowercase mb-1">the board is clear</p>
+          <p className="text-xs text-neutral-400 font-light lowercase mb-4 leading-relaxed">
+            pin your own memories or restore the sample constellation anytime.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="px-4 py-1.5 rounded-full bg-neutral-900 text-white text-xs font-medium hover:bg-neutral-800 transition-colors"
+            >
+              + add memory
+            </button>
+            <button
+              onClick={handleResetDefault}
+              className="px-4 py-1.5 rounded-full border border-neutral-200 bg-white text-neutral-700 text-xs font-medium hover:bg-neutral-50 transition-colors"
+            >
+              restore memories
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Board Canvas (Scalable for phone view) */}
@@ -531,7 +634,7 @@ export function App() {
         <StringCanvas
           nodes={nodes}
           hubPos={hubPos}
-          activeHoverId={activeHoverId || (isDragOverHub ? 'mem-hub' : null)}
+          activeHoverId={activeHoverId || hubActiveMemory?.id || (isDragOverHub ? 'mem-hub' : null)}
           canvasWidth={canvasDimensions.width}
           canvasHeight={canvasDimensions.height}
         />
@@ -544,13 +647,7 @@ export function App() {
           height={hubPos.height}
           isDragOver={isDragOverHub}
           activeMemory={hubActiveMemory}
-          onClearActiveMemory={() => {
-            if (hubActiveMemory) {
-              audioEngine.stopMemory(hubActiveMemory.id);
-              setHubActiveMemory(null);
-              setActiveSoundNodeId(null);
-            }
-          }}
+          onClearActiveMemory={handleClearHub}
           onDropMemory={memory => {
             setHubActiveMemory(memory);
             audioEngine.playMemory(memory.id, memory.audioPreset, memory.audioUrl);
@@ -563,7 +660,7 @@ export function App() {
             key={node.id}
             node={node}
             isDragging={dragState?.nodeId === node.id}
-            isHovered={activeHoverId === node.id}
+            isHovered={activeHoverId === node.id || hubActiveMemory?.id === node.id}
             isPlayingAudio={activeSoundNodeId === node.id}
             onPointerDown={handleCardPointerDown}
             onHoverStart={handleCardHoverStart}
@@ -573,6 +670,15 @@ export function App() {
           />
         ))}
       </div>
+
+      {/* Clear Modal (Handles both clearing central hub and clearing entire board) */}
+      <ClearModal
+        isOpen={isClearModalOpen}
+        onClose={() => setIsClearModalOpen(false)}
+        hubActiveMemory={hubActiveMemory}
+        onClearHub={handleClearHub}
+        onClearEntireBoard={handleClearEntireBoard}
+      />
 
       {/* Add Memory Modal */}
       <AddMemoryModal
