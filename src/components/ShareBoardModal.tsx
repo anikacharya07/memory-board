@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { MemoryNode, BoardMetadata } from '../types';
-import { generateShareableUrl, exportBoardToFile, importBoardFromFile, generateQrCode } from '../utils/shareUtils';
-import { X, Copy, Check, QrCode, Download, Upload, Share2, Heart, MessageCircle, AlertCircle } from 'lucide-react';
+import { createShortShareLink, exportBoardToFile, importBoardFromFile, generateQrCode } from '../utils/shareUtils';
+import { X, Copy, Check, QrCode, Download, Upload, Share2, Heart, MessageCircle, AlertCircle, KeyRound, Loader2, Sparkles } from 'lucide-react';
 
 interface ShareBoardModalProps {
   isOpen: boolean;
@@ -10,6 +10,7 @@ interface ShareBoardModalProps {
   metadata: BoardMetadata;
   onUpdateMetadata: (metadata: BoardMetadata) => void;
   onImportBoard: (nodes: MemoryNode[], metadata: BoardMetadata) => void;
+  onLoadBoardFromInput?: (input: string) => Promise<boolean>;
 }
 
 export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
@@ -19,16 +20,26 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
   metadata,
   onUpdateMetadata,
   onImportBoard,
+  onLoadBoardFromInput,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'link' | 'qr' | 'file'>('link');
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [activeTab, setActiveTab] = useState<'link' | 'qr' | 'open' | 'file'>('link');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [recipient, setRecipient] = useState(metadata.recipientName || '');
   const [sender, setSender] = useState(metadata.senderName || '');
   const [giftMessage, setGiftMessage] = useState(metadata.giftMessage || '');
+  const [shortUrl, setShortUrl] = useState('');
+  const [shortCode, setShortCode] = useState('');
+  const [isGeneratingShort, setIsGeneratingShort] = useState(false);
   const [shareUrlInfo, setShareUrlInfo] = useState({ url: '', charLength: 0, isLarge: false });
 
-  // Update share link when metadata or nodes change
+  // Open Board Tab state
+  const [codeOrUrlInput, setCodeOrUrlInput] = useState('');
+  const [isOpeningBoard, setIsOpeningBoard] = useState(false);
+  const [openBoardStatus, setOpenBoardStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  // Update and generate short link when metadata or nodes change
   useEffect(() => {
     if (!isOpen) return;
 
@@ -39,20 +50,29 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
       giftMessage: giftMessage.trim() || undefined,
     };
 
-    const info = generateShareableUrl(nodes, updatedMeta);
-    setShareUrlInfo(info);
-
-    if (info.charLength <= 2200) {
-      generateQrCode(info.url)
-        .then(qr => {
-          setQrDataUrl(qr);
-        })
-        .catch(() => {
-          setQrDataUrl('');
+    setIsGeneratingShort(true);
+    createShortShareLink(nodes, updatedMeta)
+      .then(res => {
+        setShortUrl(res.shortUrl);
+        setShortCode(res.code);
+        setShareUrlInfo({
+          url: res.shortUrl,
+          charLength: res.shortUrl.length,
+          isLarge: res.standaloneUrl.length > 2500,
         });
-    } else {
-      setQrDataUrl('');
-    }
+        setIsGeneratingShort(false);
+
+        if (res.shortUrl.length <= 2200) {
+          generateQrCode(res.shortUrl)
+            .then(qr => setQrDataUrl(qr))
+            .catch(() => setQrDataUrl(''));
+        } else {
+          setQrDataUrl('');
+        }
+      })
+      .catch(() => {
+        setIsGeneratingShort(false);
+      });
   }, [isOpen, nodes, recipient, sender, giftMessage]);
 
   if (!isOpen) return null;
@@ -208,7 +228,18 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
                 : 'text-neutral-500 hover:text-neutral-700'
             }`}
           >
-            shareable link
+            short link
+          </button>
+          <button
+            onClick={() => setActiveTab('open')}
+            className={`flex-1 py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1 ${
+              activeTab === 'open'
+                ? 'bg-white text-neutral-800 shadow-sm'
+                : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span>open board</span>
           </button>
           <button
             onClick={() => setActiveTab('qr')}
@@ -238,21 +269,29 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
         <div className="mt-4">
           {activeTab === 'link' && (
             <div className="space-y-3">
-              <label className="block text-xs font-medium text-neutral-600 lowercase">
-                instant web link:
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-medium text-neutral-700 lowercase">
+                  short shareable web link:
+                </label>
+                {isGeneratingShort && (
+                  <span className="text-[10.5px] text-pink-600 flex items-center gap-1 font-light">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>creating short link...</span>
+                  </span>
+                )}
+              </div>
 
               <div className="flex gap-2">
                 <input
                   id="share-link-input"
                   type="text"
                   readOnly
-                  value={shareUrlInfo.url}
-                  className="flex-1 px-3.5 py-2 text-xs font-mono rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-600 select-all focus:outline-none focus:bg-white focus:ring-1 focus:ring-pink-400 truncate"
+                  value={shortUrl || shareUrlInfo.url}
+                  className="flex-1 px-3.5 py-2 text-xs font-mono rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700 select-all focus:outline-none focus:bg-white focus:ring-1 focus:ring-pink-400 truncate"
                 />
                 <button
                   onClick={handleCopy}
-                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all ${
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 ${
                     copied
                       ? 'bg-emerald-600 text-white'
                       : 'bg-neutral-900 hover:bg-neutral-800 text-white shadow-sm'
@@ -263,17 +302,48 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
                 </button>
               </div>
 
+              {/* 5-Letter Passcode Card */}
+              {shortCode && (
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-pink-50 to-rose-50/70 border border-pink-200/80 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-white shadow-xs text-pink-600">
+                      <KeyRound className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] tracking-wider uppercase font-semibold text-pink-600/90 block">
+                        gift passcode
+                      </span>
+                      <span className="font-mono text-base font-bold text-neutral-800 tracking-widest select-all">
+                        {shortCode}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(shortCode);
+                        setCopiedCode(true);
+                        setTimeout(() => setCopiedCode(false), 2000);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl border border-pink-200 bg-white hover:bg-pink-50 text-[11px] font-medium text-pink-700 transition-colors shadow-xs active:scale-95"
+                  >
+                    {copiedCode ? 'copied code!' : 'copy code'}
+                  </button>
+                </div>
+              )}
+
               {shareUrlInfo.isLarge && (
                 <div className="flex items-start gap-1.5 p-2.5 rounded-xl bg-amber-50 text-amber-800 text-[11px]">
                   <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
                   <span>
-                    Note: Your board contains uploaded media. For very large files, downloading the .memoryboard file in the "Backup File" tab is also recommended!
+                    Note: For very large media collections, downloading the .memoryboard file in the "Backup File" tab is also recommended!
                   </span>
                 </div>
               )}
 
               {/* Quick Share Buttons */}
-              <div className="pt-2 flex items-center gap-2">
+              <div className="pt-1 flex items-center gap-2">
                 <button
                   onClick={handleWhatsAppShare}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs transition-colors"
@@ -295,33 +365,84 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
             </div>
           )}
 
+          {/* Open Board by Passcode or Link */}
+          {activeTab === 'open' && (
+            <div className="space-y-3 p-1">
+              <div>
+                <label className="block text-xs font-medium text-neutral-700 lowercase mb-1">
+                  enter 5-letter passcode or paste board link:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. b55hG or paste full link..."
+                    value={codeOrUrlInput}
+                    onChange={e => {
+                      setCodeOrUrlInput(e.target.value);
+                      setOpenBoardStatus('idle');
+                    }}
+                    className="flex-1 px-3.5 py-2 text-xs font-mono rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-pink-400"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!codeOrUrlInput.trim() || !onLoadBoardFromInput) return;
+                      setIsOpeningBoard(true);
+                      setOpenBoardStatus('idle');
+                      const ok = await onLoadBoardFromInput(codeOrUrlInput);
+                      setIsOpeningBoard(false);
+                      if (ok) {
+                        setOpenBoardStatus('success');
+                        onClose();
+                      } else {
+                        setOpenBoardStatus('error');
+                      }
+                    }}
+                    disabled={!codeOrUrlInput.trim() || isOpeningBoard}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium bg-neutral-900 hover:bg-neutral-800 text-white shadow-sm disabled:opacity-50 transition-all active:scale-95 shrink-0"
+                  >
+                    {isOpeningBoard ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 text-pink-300" />
+                    )}
+                    <span>open board</span>
+                  </button>
+                </div>
+
+                {openBoardStatus === 'error' && (
+                  <p className="text-xs text-rose-500 mt-2 font-light lowercase">
+                    could not find or open a board with that code. please verify the passcode or link.
+                  </p>
+                )}
+                {openBoardStatus === 'success' && (
+                  <p className="text-xs text-emerald-600 mt-2 font-light lowercase">
+                    memory board opened successfully!
+                  </p>
+                )}
+              </div>
+
+              <div className="p-3 rounded-2xl bg-neutral-50 border border-neutral-200/80 text-[11.5px] text-neutral-600 leading-relaxed">
+                <p className="font-medium text-neutral-800 lowercase mb-0.5">tip:</p>
+                <p className="font-light lowercase">
+                  you can type a 5-letter gift code (like <code className="px-1.5 py-0.5 rounded bg-white border border-neutral-200 font-mono text-pink-600 font-semibold">b55hG</code>) or paste any shared memory board link to view it instantly!
+                </p>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'qr' && (
             <div className="flex flex-col items-center justify-center p-3 text-center space-y-3">
-              {shareUrlInfo.charLength > 2200 ? (
-                <div className="p-4 rounded-2xl bg-pink-50/80 border border-pink-100 max-w-xs text-center space-y-2">
-                  <Heart className="w-5 h-5 text-pink-500 mx-auto" />
-                  <p className="text-xs font-medium text-pink-900 lowercase">
-                    rich constellation
-                  </p>
-                  <p className="text-[11px] text-pink-700/85 leading-relaxed lowercase">
-                    this constellation has detailed memories & notes. share it using the 1-click web link or backup file!
-                  </p>
-                </div>
-              ) : (
-                <div className="p-3 bg-white rounded-2xl shadow-md border border-neutral-100">
-                  {qrDataUrl ? (
-                    <img src={qrDataUrl} alt="QR Code" className="w-48 h-48 rounded-lg" />
-                  ) : (
-                    <div className="w-48 h-48 flex items-center justify-center text-xs text-neutral-400">
-                      generating qr...
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="p-3 bg-white rounded-2xl shadow-md border border-neutral-100">
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt="QR Code" className="w-48 h-48 rounded-lg" />
+                ) : (
+                  <div className="w-48 h-48 flex items-center justify-center text-xs text-neutral-400">
+                    {isGeneratingShort ? 'creating qr...' : 'generating qr...'}
+                  </div>
+                )}
+              </div>
               <p className="text-xs text-neutral-500 lowercase max-w-xs">
-                {shareUrlInfo.charLength <= 2200
-                  ? 'she can scan this with her phone camera to open her memory board instantly!'
-                  : 'open the shareable link tab to copy or send via whatsapp'}
+                she can scan this with her phone camera to open her memory board instantly!
               </p>
             </div>
           )}

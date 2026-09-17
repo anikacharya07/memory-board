@@ -65,10 +65,18 @@ interface CompactSharePayload {
 /**
  * Generate compressed shareable URL hash with smart compact delta encoding
  */
-export function generateShareableUrl(
+/**
+ * Generate compact share payload object and standalone URL
+ */
+export function generateShareablePayload(
   nodes: MemoryNode[],
   metadata: BoardMetadata = {}
-): { url: string; charLength: number; isLarge: boolean } {
+): {
+  url: string;
+  charLength: number;
+  isLarge: boolean;
+  compactPayload: CompactSharePayload;
+} {
   // Check if any node contains large embedded media (e.g. raw base64)
   let totalMediaChars = 0;
   nodes.forEach(n => {
@@ -110,58 +118,87 @@ export function generateShareableUrl(
 
   const jsonString = JSON.stringify(compactPayload);
   const compressed = LZString.compressToEncodedURIComponent(jsonString);
-  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
   const fullUrl = `${baseUrl}#b2=${compressed}`;
 
   return {
     url: fullUrl,
     charLength: fullUrl.length,
     isLarge: totalMediaChars > 20000 || fullUrl.length > 2500,
+    compactPayload,
   };
 }
 
 /**
- * Parse board data from current URL hash or query params
+ * Generate compressed standalone shareable URL hash
  */
-export function parseBoardFromUrl(): ShareableBoardData | null {
-  try {
-    const hash = window.location.hash || '';
-    let encodedData = '';
-    let isV2 = false;
+export function generateShareableUrl(
+  nodes: MemoryNode[],
+  metadata: BoardMetadata = {}
+): { url: string; charLength: number; isLarge: boolean } {
+  return generateShareablePayload(nodes, metadata);
+}
 
-    if (hash.startsWith('#b2=')) {
-      encodedData = hash.substring(4);
-      isV2 = true;
-    } else if (hash.startsWith('#board=')) {
-      encodedData = hash.substring(7);
-      isV2 = false;
-    } else {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('b2')) {
-        encodedData = params.get('b2') || '';
-        isV2 = true;
-      } else if (params.get('board')) {
-        encodedData = params.get('board') || '';
-        isV2 = false;
+/**
+ * Create a tiny, ultra-short share link (e.g. #b=b55hG, ~30 characters!)
+ * with automatic fallback to standalone compressed hash.
+ */
+export async function createShortShareLink(
+  nodes: MemoryNode[],
+  metadata: BoardMetadata = {}
+): Promise<{
+  shortUrl: string;
+  code: string;
+  standaloneUrl: string;
+  isShortCreated: boolean;
+}> {
+  const { url: standaloneUrl, compactPayload } = generateShareablePayload(nodes, metadata);
+  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
+
+  try {
+    const res = await fetch('https://paste.rs', {
+      method: 'POST',
+      body: JSON.stringify(compactPayload),
+    });
+
+    if (res.ok) {
+      const pasteUrl = (await res.text()).trim();
+      const code = pasteUrl.split('/').pop()?.trim() || '';
+      if (code) {
+        const shortUrl = `${baseUrl}#b=${code}`;
+        return {
+          shortUrl,
+          code,
+          standaloneUrl,
+          isShortCreated: true,
+        };
       }
     }
+  } catch (err) {
+    console.warn('Could not create short link via cloud service, using standalone link:', err);
+  }
 
-    if (!encodedData) return null;
+  return {
+    shortUrl: standaloneUrl,
+    code: '',
+    standaloneUrl,
+    isShortCreated: false,
+  };
+}
 
-    // Try direct decompression, then with decodeURIComponent fallback if URL-encoded by apps
-    let decompressed = LZString.decompressFromEncodedURIComponent(encodedData);
-    if (!decompressed) {
-      try {
-        decompressed = LZString.decompressFromEncodedURIComponent(decodeURIComponent(encodedData));
-      } catch {}
-    }
+/**
+ * Fetch a shared board using its short code (e.g. b55hG)
+ */
+export async function fetchBoardByCode(code: string): Promise<ShareableBoardData | null> {
+  const cleanCode = code.trim().replace(/^#?(?:b=|code=)?/, '');
+  if (!cleanCode) return null;
 
-    if (!decompressed) return null;
+  try {
+    const res = await fetch(`https://paste.rs/${cleanCode}`);
+    if (!res.ok) return null;
+    const parsed = await res.json();
 
-    const parsed = JSON.parse(decompressed);
-
-    // V2 Compact schema
-    if (isV2 || (parsed && parsed.v === 2 && Array.isArray(parsed.s))) {
+    if (parsed && parsed.v === 2 && Array.isArray(parsed.s)) {
       const restoredNodes: MemoryNode[] = parsed.s.map((item: CompactNode, idx: number) => {
         const def = defaultMemoryMap.get(item.i);
         return sanitizeNode({
@@ -189,21 +226,151 @@ export function parseBoardFromUrl(): ShareableBoardData | null {
       };
     }
 
-    // V1 Full schema
     if (parsed && Array.isArray(parsed.nodes)) {
-      const sanitized = parsed.nodes.map((node: Partial<MemoryNode>, idx: number) =>
-        sanitizeNode(node, idx)
-      );
       return {
-        version: 1,
+        version: parsed.version || 1,
         metadata: parsed.metadata || {},
-        nodes: sanitized,
+        nodes: parsed.nodes.map((n: any, idx: number) => sanitizeNode(n, idx)),
       };
     }
   } catch (err) {
-    console.error('Failed to parse shareable board from URL:', err);
+    console.warn('Failed to fetch board by code:', err);
   }
+
   return null;
+}
+
+/**
+ * Decompress a compact v2 hash string
+ */
+function parseCompactHash(rawEncoded: string): ShareableBoardData | null {
+  try {
+    let decompressed = LZString.decompressFromEncodedURIComponent(rawEncoded);
+    if (!decompressed) {
+      try {
+        decompressed = LZString.decompressFromEncodedURIComponent(decodeURIComponent(rawEncoded));
+      } catch {}
+    }
+    if (!decompressed) return null;
+
+    const parsed = JSON.parse(decompressed);
+    if (parsed && Array.isArray(parsed.s)) {
+      const restoredNodes: MemoryNode[] = parsed.s.map((item: CompactNode, idx: number) => {
+        const def = defaultMemoryMap.get(item.i);
+        return sanitizeNode({
+          id: item.i,
+          caption: item.c ?? def?.caption ?? 'memory',
+          mediaType: item.t ?? def?.mediaType ?? 'image',
+          mediaUrl: item.u ?? def?.mediaUrl ?? '',
+          audioPreset: (item.a as any) ?? def?.audioPreset ?? 'acoustic_guitar',
+          audioUrl: item.au ?? def?.audioUrl,
+          x: item.x ?? def?.x ?? 200,
+          y: item.y ?? def?.y ?? 200,
+          rotation: item.r ?? def?.rotation ?? 0,
+          width: item.w ?? def?.width ?? 175,
+          height: item.h ?? def?.height ?? 220,
+          connectedTo: item.k ?? def?.connectedTo ?? ['mem-hub'],
+          note: item.n ?? def?.note,
+          date: item.d ?? def?.date,
+        }, idx);
+      });
+
+      return {
+        version: CURRENT_BOARD_VERSION,
+        metadata: parsed.m || {},
+        nodes: restoredNodes,
+      };
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Decompress a legacy v1 hash string
+ */
+function parseLegacyHash(rawEncoded: string): ShareableBoardData | null {
+  try {
+    let decompressed = LZString.decompressFromEncodedURIComponent(rawEncoded);
+    if (!decompressed) {
+      try {
+        decompressed = LZString.decompressFromEncodedURIComponent(decodeURIComponent(rawEncoded));
+      } catch {}
+    }
+    if (!decompressed) return null;
+
+    const parsed = JSON.parse(decompressed);
+    if (parsed && Array.isArray(parsed.nodes)) {
+      return {
+        version: 1,
+        metadata: parsed.metadata || {},
+        nodes: parsed.nodes.map((n: any, idx: number) => sanitizeNode(n, idx)),
+      };
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Universally parse and load board from any input string
+ * (short code, full link, hash, or cloud URL)
+ */
+export async function loadBoardFromInput(input: string): Promise<ShareableBoardData | null> {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // 1. Direct short code (e.g. b55hG)
+  if (/^[a-zA-Z0-9_-]{3,12}$/.test(trimmed)) {
+    const data = await fetchBoardByCode(trimmed);
+    if (data) return data;
+  }
+
+  // 2. paste.rs URL
+  if (trimmed.includes('paste.rs/')) {
+    const code = trimmed.split('paste.rs/')[1]?.split(/[?#/&]/)[0];
+    if (code) {
+      const data = await fetchBoardByCode(code);
+      if (data) return data;
+    }
+  }
+
+  // 3. Short code in URL query or hash (#b=... or ?b=... or ?code=...)
+  const codeMatch = trimmed.match(/[?#&](?:b|code)=([a-zA-Z0-9_-]+)/);
+  if (codeMatch && codeMatch[1]) {
+    const data = await fetchBoardByCode(codeMatch[1]);
+    if (data) return data;
+  }
+
+  // 4. Compact v2 hash in URL (#b2=... or ?b2=...)
+  const b2Match = trimmed.match(/[?#&]b2=([^&]+)/);
+  if (b2Match && b2Match[1]) {
+    const data = parseCompactHash(b2Match[1]);
+    if (data) return data;
+  }
+
+  // 5. Legacy v1 hash in URL (#board=... or ?board=...)
+  const boardMatch = trimmed.match(/[?#&]board=([^&]+)/);
+  if (boardMatch && boardMatch[1]) {
+    const data = parseLegacyHash(boardMatch[1]);
+    if (data) return data;
+  }
+
+  // 6. Direct hash string without prefix
+  return parseCompactHash(trimmed) || parseLegacyHash(trimmed);
+}
+
+/**
+ * Parse board data from current browser URL hash or query params
+ */
+export async function parseBoardFromUrl(): Promise<ShareableBoardData | null> {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+
+  if (!hash && !search) return null;
+
+  // Check full URL string
+  const fullUrl = `${hash}&${search}`;
+  return await loadBoardFromInput(fullUrl);
 }
 
 /**

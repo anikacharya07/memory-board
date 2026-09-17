@@ -10,21 +10,15 @@ import { MemoryDetailModal } from './components/MemoryDetailModal';
 import { ShareBoardModal } from './components/ShareBoardModal';
 import { ClearModal } from './components/ClearModal';
 import { GiftWelcomeOverlay } from './components/GiftWelcomeOverlay';
-import { parseBoardFromUrl } from './utils/shareUtils';
-import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles, Gift, BookmarkCheck, Maximize2, Minimize2 } from 'lucide-react';
+import { parseBoardFromUrl, loadBoardFromInput } from './utils/shareUtils';
+import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles, Gift, BookmarkCheck, Maximize2, Minimize2, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const STORAGE_KEY = 'romantic_memory_board_nodes_v1';
 const METADATA_KEY = 'romantic_memory_board_meta_v1';
 
 export function App() {
-  // Check if board was loaded via share link (hash #board=...)
-  const initialSharedData = useRef(parseBoardFromUrl()).current;
-
   const [metadata, setMetadata] = useState<BoardMetadata>(() => {
-    if (initialSharedData?.metadata) {
-      return initialSharedData.metadata;
-    }
     try {
       const saved = localStorage.getItem(METADATA_KEY);
       if (saved) return JSON.parse(saved);
@@ -36,9 +30,6 @@ export function App() {
   });
 
   const [nodes, setNodes] = useState<MemoryNode[]>(() => {
-    if (initialSharedData?.nodes && Array.isArray(initialSharedData.nodes)) {
-      return initialSharedData.nodes;
-    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved !== null) {
@@ -58,12 +49,96 @@ export function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
-  const [isWelcomeOverlayOpen, setIsWelcomeOverlayOpen] = useState(Boolean(initialSharedData));
-  const [isViewingSharedBoard, setIsViewingSharedBoard] = useState(Boolean(initialSharedData));
+  const [isWelcomeOverlayOpen, setIsWelcomeOverlayOpen] = useState(false);
+  const [isViewingSharedBoard, setIsViewingSharedBoard] = useState(false);
+  const [isLoadingSharedBoard, setIsLoadingSharedBoard] = useState(false);
   const [detailModalNode, setDetailModalNode] = useState<MemoryNode | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [savedNotification, setSavedNotification] = useState(false);
+
+  // Load shared board from current browser URL or hash
+  const loadBoardFromCurrentUrl = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    if (!hash && !search) return;
+
+    const hasShareKey =
+      hash.includes('b=') ||
+      hash.includes('b2=') ||
+      hash.includes('board=') ||
+      search.includes('b=') ||
+      search.includes('b2=') ||
+      search.includes('board=') ||
+      search.includes('code=');
+
+    if (!hasShareKey) return;
+
+    try {
+      setIsLoadingSharedBoard(true);
+      const sharedData = await parseBoardFromUrl();
+      if (sharedData && Array.isArray(sharedData.nodes) && sharedData.nodes.length > 0) {
+        audioEngine.stopAll();
+        setHubActiveMemory(null);
+        setActiveSoundNodeId(null);
+        setNodes(sharedData.nodes);
+        if (sharedData.metadata) {
+          setMetadata(sharedData.metadata);
+        }
+        setIsViewingSharedBoard(true);
+        setIsWelcomeOverlayOpen(true);
+        homePositionsRef.current = {};
+      }
+    } catch (err) {
+      console.warn('Could not load shared board:', err);
+    } finally {
+      setIsLoadingSharedBoard(false);
+    }
+  }, []);
+
+  // Listen to hashchange & popstate so shared links work immediately without reload
+  useEffect(() => {
+    loadBoardFromCurrentUrl();
+    window.addEventListener('hashchange', loadBoardFromCurrentUrl);
+    window.addEventListener('popstate', loadBoardFromCurrentUrl);
+    return () => {
+      window.removeEventListener('hashchange', loadBoardFromCurrentUrl);
+      window.removeEventListener('popstate', loadBoardFromCurrentUrl);
+    };
+  }, [loadBoardFromCurrentUrl]);
+
+  // Load board from direct input (code, short link, or pasted URL)
+  const handleLoadBoardFromInput = async (input: string): Promise<boolean> => {
+    try {
+      setIsLoadingSharedBoard(true);
+      const sharedData = await loadBoardFromInput(input);
+      if (sharedData && Array.isArray(sharedData.nodes) && sharedData.nodes.length > 0) {
+        audioEngine.stopAll();
+        setHubActiveMemory(null);
+        setActiveSoundNodeId(null);
+        setNodes(sharedData.nodes);
+        if (sharedData.metadata) {
+          setMetadata(sharedData.metadata);
+        }
+        setIsViewingSharedBoard(true);
+        setIsWelcomeOverlayOpen(true);
+        homePositionsRef.current = {};
+        confetti({
+          particleCount: 60,
+          spread: 60,
+          origin: { y: 0.5 },
+          colors: ['#f472b6', '#fda4af', '#fbcfe8'],
+        });
+        return true;
+      }
+    } catch (err) {
+      console.warn('Could not load board from input:', err);
+    } finally {
+      setIsLoadingSharedBoard(false);
+    }
+    return false;
+  };
 
   // Mobile responsiveness states
   const [isMobileView, setIsMobileView] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
@@ -672,7 +747,24 @@ export function App() {
         metadata={metadata}
         onUpdateMetadata={setMetadata}
         onImportBoard={handleImportBoard}
+        onLoadBoardFromInput={handleLoadBoardFromInput}
       />
+
+      {/* Loading Shared Board Indicator */}
+      {isLoadingSharedBoard && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/80 backdrop-blur-md animate-fadeIn select-none">
+          <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-pink-50 border border-pink-200/80 shadow-lg mb-3">
+            <Loader2 className="w-8 h-8 text-pink-500 animate-spin" />
+            <Sparkles className="w-4 h-4 text-pink-400 absolute" />
+          </div>
+          <p className="text-sm font-medium text-neutral-800 lowercase tracking-tight">
+            opening shared constellation...
+          </p>
+          <p className="text-xs text-neutral-400 font-light lowercase mt-1">
+            connecting strings & melodies
+          </p>
+        </div>
+      )}
 
       {/* Gift Welcome Overlay (shown when opening via a shared link) */}
       <GiftWelcomeOverlay
