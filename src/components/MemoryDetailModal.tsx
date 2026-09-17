@@ -21,21 +21,21 @@ export const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
   if (!node) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-md bg-white rounded-[32px] shadow-2xl overflow-hidden border border-neutral-100 transform transition-all">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/40 backdrop-blur-md animate-fadeIn">
+      <div className="relative w-full max-w-sm sm:max-w-md bg-white rounded-[26px] sm:rounded-[32px] shadow-2xl overflow-hidden border border-neutral-100 transform transition-all max-h-[90dvh] flex flex-col">
         {/* Close Button */}
         <button
           onClick={() => {
             audioEngine.stopMemory(node.id);
             onClose();
           }}
-          className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/40 text-white/90 hover:bg-black/60 transition-colors backdrop-blur-md"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10 p-2 rounded-full bg-black/40 text-white/90 hover:bg-black/60 transition-colors backdrop-blur-md"
         >
           <X className="w-4 h-4" />
         </button>
 
         {/* Media Frame */}
-        <div className="relative w-full aspect-square bg-neutral-900 overflow-hidden">
+        <div className="relative w-full aspect-[4/3] sm:aspect-square bg-neutral-900 overflow-hidden shrink-0">
           {node.mediaType === 'video' ? (
             <video
               src={node.mediaUrl}

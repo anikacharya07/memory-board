@@ -10,7 +10,7 @@ import { MemoryDetailModal } from './components/MemoryDetailModal';
 import { ShareBoardModal } from './components/ShareBoardModal';
 import { GiftWelcomeOverlay } from './components/GiftWelcomeOverlay';
 import { parseBoardFromUrl } from './utils/shareUtils';
-import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles, Gift, BookmarkCheck } from 'lucide-react';
+import { Plus, Trash2, RotateCcw, Volume2, VolumeX, Sparkles, Gift, BookmarkCheck, Maximize2, Minimize2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const STORAGE_KEY = 'romantic_memory_board_nodes_v1';
@@ -63,7 +63,12 @@ export function App() {
   const [hasInteracted, setHasInteracted] = useState(false);
   const [savedNotification, setSavedNotification] = useState(false);
 
+  // Mobile responsiveness states
+  const [isMobileView, setIsMobileView] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+  const [isMobileFit, setIsMobileFit] = useState(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   // Central Hub Position & Dimensions
   const hubWidth = 180;
@@ -75,17 +80,36 @@ export function App() {
     height: hubHeight,
   };
 
-  // Update canvas bounds on resize
+  // Update canvas bounds & detect mobile on resize
   useEffect(() => {
     const handleResize = () => {
       const w = Math.max(window.innerWidth, 1200);
       const h = Math.max(window.innerHeight, 950);
       setCanvasDimensions({ width: w, height: h });
+      setIsMobileView(window.innerWidth < 768);
     };
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Auto-center scroll viewport on central hub on initial mount (for phones)
+  useEffect(() => {
+    if (viewportRef.current && window.innerWidth < 768 && !isMobileFit) {
+      const timer = setTimeout(() => {
+        const hubCenterX = hubPos.x + hubPos.width / 2;
+        const hubCenterY = hubPos.y + hubPos.height / 2;
+        const targetScrollX = Math.max(0, hubCenterX - window.innerWidth / 2);
+        const targetScrollY = Math.max(0, hubCenterY - window.innerHeight / 2);
+        viewportRef.current?.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth',
+        });
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [isMobileFit]);
 
   // Save to LocalStorage on change (only if not viewing a temporary shared link)
   useEffect(() => {
@@ -188,7 +212,7 @@ export function App() {
     setIsDragOverHub(false);
   };
 
-  // Card Hover Sound Controls
+  // Card Hover Sound Controls (Desktop)
   const handleCardHoverStart = (node: MemoryNode) => {
     if (dragState) return;
     setActiveHoverId(node.id);
@@ -207,6 +231,22 @@ export function App() {
         setActiveSoundNodeId(null);
       }
       audioEngine.stopMemory(node.id, 320);
+    }
+  };
+
+  // Card Tap / Click Behavior (Touch-Optimized)
+  const handleCardClick = (clickedNode: MemoryNode) => {
+    if (dragState) return;
+    handleUserGesture();
+
+    // If on mobile or not playing, first tap plays sound
+    if (activeSoundNodeId !== clickedNode.id) {
+      audioEngine.playMemory(clickedNode.id, clickedNode.audioPreset, clickedNode.audioUrl);
+      setActiveSoundNodeId(clickedNode.id);
+      setActiveHoverId(clickedNode.id);
+    } else {
+      // Second tap on the active memory opens the romantic detail modal
+      setDetailModalNode(clickedNode);
     }
   };
 
@@ -307,49 +347,38 @@ export function App() {
     setIsMuted(muted);
   };
 
+  // Mobile fit scale factor
+  const mobileScale = isMobileView
+    ? Math.min(1, (window.innerWidth - 16) / canvasDimensions.width)
+    : 1;
+
   return (
     <div
-      ref={containerRef}
-      onClick={handleUserGesture}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      className="relative w-full min-h-screen bg-board-paper overflow-hidden select-none"
-      style={{
-        minWidth: `${canvasDimensions.width}px`,
-        minHeight: `${canvasDimensions.height}px`,
-      }}
+      ref={viewportRef}
+      className="relative w-full h-[100dvh] overflow-auto overscroll-contain touch-scrollable bg-board-paper select-none"
     >
-      {/* Ambient Romantic Dust Particles (Nostalgic Film Aura) */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute top-[18%] left-[12%] w-1.5 h-1.5 rounded-full bg-pink-300/40 blur-[0.8px] animate-float-particle" style={{ animationDuration: '9s' }} />
-        <div className="absolute top-[45%] left-[30%] w-2 h-2 rounded-full bg-rose-200/35 blur-[1px] animate-float-particle" style={{ animationDuration: '12s', animationDelay: '2s' }} />
-        <div className="absolute top-[28%] right-[22%] w-1.5 h-1.5 rounded-full bg-amber-200/40 blur-[0.8px] animate-float-particle" style={{ animationDuration: '10s', animationDelay: '4s' }} />
-        <div className="absolute top-[68%] left-[62%] w-2 h-2 rounded-full bg-pink-200/35 blur-[1.2px] animate-float-particle" style={{ animationDuration: '14s', animationDelay: '1s' }} />
-        <div className="absolute top-[75%] right-[15%] w-1.5 h-1.5 rounded-full bg-rose-300/30 blur-[0.8px] animate-float-particle" style={{ animationDuration: '11s', animationDelay: '3s' }} />
-      </div>
-
       {/* Top Banner: Shared Board Notification */}
       {isViewingSharedBoard && (
-        <div className="fixed top-0 inset-x-0 z-50 bg-gradient-to-r from-pink-500/90 via-rose-500/90 to-pink-600/90 text-white px-4 py-2 text-xs flex items-center justify-between shadow-md backdrop-blur-md">
-          <span className="flex items-center gap-1.5 font-light">
-            <Gift className="w-3.5 h-3.5" />
-            <span>
+        <div className="fixed top-0 inset-x-0 z-50 bg-gradient-to-r from-pink-500/95 via-rose-500/95 to-pink-600/95 text-white px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs flex items-center justify-between shadow-md backdrop-blur-md">
+          <span className="flex items-center gap-1.5 font-light truncate max-w-[60%]">
+            <Gift className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
               {metadata.recipientName
                 ? `gifted to ${metadata.recipientName}`
                 : 'viewing a shared memory board'}
             </span>
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleSaveSharedBoardToDevice}
-              className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white text-pink-700 font-medium hover:bg-pink-50 transition-colors"
+              className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full bg-white text-pink-700 font-medium hover:bg-pink-50 transition-colors text-[10.5px] sm:text-xs"
             >
               <BookmarkCheck className="w-3 h-3" />
-              <span>save to my device</span>
+              <span>save</span>
             </button>
             <button
               onClick={handleResetDefault}
-              className="px-2.5 py-1 text-white/80 hover:text-white transition-colors"
+              className="px-2 py-0.5 text-white/80 hover:text-white transition-colors text-[10.5px] sm:text-xs"
             >
               exit
             </button>
@@ -365,28 +394,28 @@ export function App() {
         </div>
       )}
 
-      {/* Top Header & Minimalist Controls (Top Left & Top Right) */}
+      {/* Top Header & Minimalist Controls (Mobile-Optimized) */}
       <header
-        className={`fixed left-0 right-0 z-40 px-7 py-6 flex items-center justify-between pointer-events-none transition-all ${
-          isViewingSharedBoard ? 'top-8' : 'top-0'
+        className={`fixed left-0 right-0 z-40 px-3.5 sm:px-7 py-3 sm:py-6 flex items-center justify-between pointer-events-none transition-all ${
+          isViewingSharedBoard ? 'top-8 sm:top-8' : 'top-0'
         }`}
       >
         {/* Top Left: the board / memories, on a string */}
         <div className="pointer-events-auto">
-          <h1 className="text-[22px] font-normal tracking-[-0.03em] text-neutral-800 lowercase font-sans">
+          <h1 className="text-base sm:text-[22px] font-normal tracking-[-0.03em] text-neutral-800 lowercase font-sans leading-tight">
             {metadata.title || 'the board'}
           </h1>
-          <p className="text-[12.5px] text-neutral-400 font-light lowercase tracking-tight mt-0.5">
+          <p className="text-[10px] sm:text-[12.5px] text-neutral-400 font-light lowercase tracking-tight">
             {metadata.subtitle || 'memories, on a string'}
           </p>
         </div>
 
         {/* Top Right Controls */}
-        <div className="flex items-center gap-2 pointer-events-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
           {/* Sound Toggle Indicator */}
           <button
             onClick={toggleMute}
-            className={`p-2 rounded-full border transition-all ${
+            className={`p-1.5 sm:p-2 rounded-full border transition-all ${
               isMuted
                 ? 'bg-neutral-100/90 text-neutral-400 border-neutral-200/60'
                 : 'bg-white/90 backdrop-blur-md text-pink-500 border-pink-200/80 shadow-[0_2px_8px_rgba(244,114,182,0.15)]'
@@ -399,22 +428,23 @@ export function App() {
           {/* Share / Gift Board Button */}
           <button
             onClick={() => setIsShareModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-pink-200 bg-pink-50/85 hover:bg-pink-100/90 text-pink-700 text-xs md:text-[13px] font-medium shadow-[0_2px_8px_rgba(244,114,182,0.15)] hover:shadow-md transition-all active:scale-95"
+            className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full border border-pink-200 bg-pink-50/85 hover:bg-pink-100/90 text-pink-700 text-xs sm:text-[13px] font-medium shadow-[0_2px_8px_rgba(244,114,182,0.15)] hover:shadow-md transition-all active:scale-95"
             title="Share or gift this board"
           >
             <Gift className="w-3.5 h-3.5 text-pink-600" />
-            <span>share board</span>
+            <span className="hidden sm:inline">share board</span>
+            <span className="sm:hidden">share</span>
           </button>
 
-          {/* Reset button (shown if memories were cleared or altered) */}
+          {/* Reset button */}
           {nodes.length < DEFAULT_MEMORIES.length && (
             <button
               onClick={handleResetDefault}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-neutral-200/80 bg-white/80 hover:bg-white text-xs text-neutral-600 shadow-sm transition-all active:scale-95"
+              className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border border-neutral-200/80 bg-white/80 hover:bg-white text-xs text-neutral-600 shadow-sm transition-all active:scale-95"
               title="Restore sample memories"
             >
               <RotateCcw className="w-3 h-3 text-neutral-500" />
-              <span>restore</span>
+              <span className="hidden sm:inline">restore</span>
             </button>
           )}
 
@@ -422,78 +452,127 @@ export function App() {
           {nodes.length > 0 && (
             <button
               onClick={handleClearBoard}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full border border-transparent hover:border-neutral-200/70 hover:bg-white/80 text-xs text-neutral-400 hover:text-neutral-700 transition-all"
+              className="p-1.5 sm:px-3 sm:py-1.5 rounded-full border border-transparent hover:border-neutral-200/70 hover:bg-white/80 text-neutral-400 hover:text-neutral-700 transition-all"
               title="Clear all cards"
             >
-              <Trash2 className="w-3 h-3" />
-              <span>clear</span>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-xs ml-1">clear</span>
             </button>
           )}
 
           {/* + Add Memory Button */}
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-neutral-200/90 bg-white/90 backdrop-blur-md hover:bg-white text-neutral-800 text-xs md:text-[13px] font-normal shadow-[0_2px_8px_rgba(0,0,0,0.03)] hover:shadow-md transition-all active:scale-95"
+            className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full border border-neutral-200/90 bg-white/90 backdrop-blur-md hover:bg-white text-neutral-800 text-xs sm:text-[13px] font-normal shadow-[0_2px_8px_rgba(0,0,0,0.03)] hover:shadow-md transition-all active:scale-95"
           >
             <Plus className="w-3.5 h-3.5 text-neutral-500" />
-            <span>add memory</span>
+            <span className="hidden sm:inline">add memory</span>
+            <span className="sm:hidden">add</span>
           </button>
         </div>
       </header>
 
       {/* Floating Audio Interaction Prompt (Unobtrusive) */}
       {!hasInteracted && !isWelcomeOverlayOpen && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900/85 text-white/90 backdrop-blur-xl px-4 py-2 rounded-full text-xs flex items-center gap-2 shadow-[0_10px_30px_rgba(0,0,0,0.15)] ring-1 ring-white/10 animate-pulse pointer-events-none">
-          <Sparkles className="w-3.5 h-3.5 text-pink-300" />
-          <span>click anywhere or hover a memory to explore sound</span>
+        <div className="fixed bottom-14 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900/85 text-white/90 backdrop-blur-xl px-4 py-2 rounded-full text-[11px] sm:text-xs flex items-center gap-2 shadow-[0_10px_30px_rgba(0,0,0,0.15)] ring-1 ring-white/10 animate-pulse pointer-events-none whitespace-nowrap">
+          <Sparkles className="w-3.5 h-3.5 text-pink-300 shrink-0" />
+          <span>tap any memory to hear its soundtrack</span>
         </div>
       )}
 
-      {/* Dynamic Pink String Connections Canvas */}
-      <StringCanvas
-        nodes={nodes}
-        hubPos={hubPos}
-        activeHoverId={activeHoverId || (isDragOverHub ? 'mem-hub' : null)}
-        canvasWidth={canvasDimensions.width}
-        canvasHeight={canvasDimensions.height}
-      />
+      {/* Mobile Fit View Toggle Pill (Phone-Only Feature) */}
+      {isMobileView && (
+        <button
+          onClick={() => {
+            handleUserGesture();
+            setIsMobileFit(prev => !prev);
+          }}
+          className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 backdrop-blur-md border border-neutral-200/90 shadow-md text-[11px] font-medium text-neutral-700 active:scale-95 transition-all"
+        >
+          {isMobileFit ? (
+            <>
+              <Maximize2 className="w-3 h-3 text-pink-500" />
+              <span>100% zoom</span>
+            </>
+          ) : (
+            <>
+              <Minimize2 className="w-3 h-3 text-pink-500" />
+              <span>fit constellation</span>
+            </>
+          )}
+        </button>
+      )}
 
-      {/* Central Drop Hub ("drop a memory here / see what it sounds like") */}
-      <CentralHub
-        x={hubPos.x}
-        y={hubPos.y}
-        width={hubPos.width}
-        height={hubPos.height}
-        isDragOver={isDragOverHub}
-        activeMemory={hubActiveMemory}
-        onClearActiveMemory={() => {
-          if (hubActiveMemory) {
-            audioEngine.stopMemory(hubActiveMemory.id);
-            setHubActiveMemory(null);
-            setActiveSoundNodeId(null);
-          }
+      {/* Board Canvas (Scalable for phone view) */}
+      <div
+        ref={containerRef}
+        onClick={handleUserGesture}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        className="relative transition-transform duration-300 ease-out origin-top-left"
+        style={{
+          width: `${canvasDimensions.width}px`,
+          height: `${canvasDimensions.height}px`,
+          transform: isMobileFit ? `scale(${mobileScale})` : 'none',
+          marginBottom: isMobileFit ? `-${canvasDimensions.height * (1 - mobileScale)}px` : undefined,
+          marginRight: isMobileFit ? `-${canvasDimensions.width * (1 - mobileScale)}px` : undefined,
         }}
-        onDropMemory={memory => {
-          setHubActiveMemory(memory);
-          audioEngine.playMemory(memory.id, memory.audioPreset, memory.audioUrl);
-        }}
-      />
+      >
+        {/* Ambient Romantic Dust Particles (Nostalgic Film Aura) */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <div className="absolute top-[18%] left-[12%] w-1.5 h-1.5 rounded-full bg-pink-300/40 blur-[0.8px] animate-float-particle" style={{ animationDuration: '9s' }} />
+          <div className="absolute top-[45%] left-[30%] w-2 h-2 rounded-full bg-rose-200/35 blur-[1px] animate-float-particle" style={{ animationDuration: '12s', animationDelay: '2s' }} />
+          <div className="absolute top-[28%] right-[22%] w-1.5 h-1.5 rounded-full bg-amber-200/40 blur-[0.8px] animate-float-particle" style={{ animationDuration: '10s', animationDelay: '4s' }} />
+          <div className="absolute top-[68%] left-[62%] w-2 h-2 rounded-full bg-pink-200/35 blur-[1.2px] animate-float-particle" style={{ animationDuration: '14s', animationDelay: '1s' }} />
+          <div className="absolute top-[75%] right-[15%] w-1.5 h-1.5 rounded-full bg-rose-300/30 blur-[0.8px] animate-float-particle" style={{ animationDuration: '11s', animationDelay: '3s' }} />
+        </div>
 
-      {/* Scattered Draggable Memory Cards */}
-      {nodes.map(node => (
-        <MemoryCard
-          key={node.id}
-          node={node}
-          isDragging={dragState?.nodeId === node.id}
-          isHovered={activeHoverId === node.id}
-          isPlayingAudio={activeSoundNodeId === node.id}
-          onPointerDown={handleCardPointerDown}
-          onHoverStart={handleCardHoverStart}
-          onHoverEnd={handleCardHoverEnd}
-          onClick={clickedNode => setDetailModalNode(clickedNode)}
-          onDelete={handleDeleteNode}
+        {/* Dynamic Pink String Connections Canvas */}
+        <StringCanvas
+          nodes={nodes}
+          hubPos={hubPos}
+          activeHoverId={activeHoverId || (isDragOverHub ? 'mem-hub' : null)}
+          canvasWidth={canvasDimensions.width}
+          canvasHeight={canvasDimensions.height}
         />
-      ))}
+
+        {/* Central Drop Hub ("drop a memory here / see what it sounds like") */}
+        <CentralHub
+          x={hubPos.x}
+          y={hubPos.y}
+          width={hubPos.width}
+          height={hubPos.height}
+          isDragOver={isDragOverHub}
+          activeMemory={hubActiveMemory}
+          onClearActiveMemory={() => {
+            if (hubActiveMemory) {
+              audioEngine.stopMemory(hubActiveMemory.id);
+              setHubActiveMemory(null);
+              setActiveSoundNodeId(null);
+            }
+          }}
+          onDropMemory={memory => {
+            setHubActiveMemory(memory);
+            audioEngine.playMemory(memory.id, memory.audioPreset, memory.audioUrl);
+          }}
+        />
+
+        {/* Scattered Draggable Memory Cards */}
+        {nodes.map(node => (
+          <MemoryCard
+            key={node.id}
+            node={node}
+            isDragging={dragState?.nodeId === node.id}
+            isHovered={activeHoverId === node.id}
+            isPlayingAudio={activeSoundNodeId === node.id}
+            onPointerDown={handleCardPointerDown}
+            onHoverStart={handleCardHoverStart}
+            onHoverEnd={handleCardHoverEnd}
+            onClick={handleCardClick}
+            onDelete={handleDeleteNode}
+          />
+        ))}
+      </div>
 
       {/* Add Memory Modal */}
       <AddMemoryModal

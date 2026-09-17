@@ -105,18 +105,18 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white rounded-[28px] shadow-2xl border border-neutral-100 p-6 md:p-8 overflow-hidden max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/40 backdrop-blur-md animate-fadeIn">
+      <div className="relative w-full max-w-lg bg-white rounded-[24px] sm:rounded-[28px] shadow-2xl border border-neutral-100 p-4 sm:p-6 md:p-8 overflow-hidden max-h-[90dvh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-neutral-100">
+        <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-neutral-100">
           <div>
             <div className="flex items-center gap-1.5">
               <Heart className="w-4 h-4 text-pink-500 fill-pink-400" />
-              <h3 className="text-base font-medium tracking-tight text-neutral-800 lowercase">
+              <h3 className="text-sm sm:text-base font-medium tracking-tight text-neutral-800 lowercase">
                 gift & share this board
               </h3>
             </div>
-            <p className="text-xs text-neutral-400 mt-0.5 lowercase">
+            <p className="text-[11px] sm:text-xs text-neutral-400 mt-0.5 lowercase">
               send your girlfriend this constellation of memories
             </p>
           </div>
@@ -129,17 +129,17 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
         </div>
 
         {/* Personalized Gift Message (Optional) */}
-        <div className="mt-4 p-4 rounded-2xl bg-pink-50/50 border border-pink-100/70 space-y-3">
+        <div className="mt-3 sm:mt-4 p-3 sm:p-4 rounded-2xl bg-pink-50/50 border border-pink-100/70 space-y-2.5 sm:space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-pink-900 lowercase flex items-center gap-1">
+            <span className="text-[11px] sm:text-xs font-medium text-pink-900 lowercase flex items-center gap-1">
               <span>personalize greeting</span>
-              <span className="text-[10px] text-pink-500 font-normal">(appears when opened)</span>
+              <span className="text-[9.5px] sm:text-[10px] text-pink-500 font-normal">(on open)</span>
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
             <div>
-              <label className="block text-[11px] text-neutral-500 mb-1 lowercase">to (her name):</label>
+              <label className="block text-[10.5px] sm:text-[11px] text-neutral-500 mb-0.5 sm:mb-1 lowercase">to (her name):</label>
               <input
                 type="text"
                 placeholder="e.g. Sophia ❤️"
@@ -149,7 +149,7 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-[11px] text-neutral-500 mb-1 lowercase">from (your name):</label>
+              <label className="block text-[10.5px] sm:text-[11px] text-neutral-500 mb-0.5 sm:mb-1 lowercase">from (your name):</label>
               <input
                 type="text"
                 placeholder="e.g. With love, Alex"

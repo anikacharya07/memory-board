@@ -95,15 +95,15 @@ export const AddMemoryModal: React.FC<AddMemoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white rounded-[28px] shadow-2xl border border-neutral-100 p-6 md:p-8 overflow-hidden max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/30 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-lg bg-white rounded-[24px] sm:rounded-[28px] shadow-2xl border border-neutral-100 p-4 sm:p-6 md:p-8 overflow-hidden max-h-[90dvh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-neutral-100">
+        <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-neutral-100">
           <div>
-            <h3 className="text-base font-medium tracking-tight text-neutral-800">
+            <h3 className="text-sm sm:text-base font-medium tracking-tight text-neutral-800">
               add a memory
             </h3>
-            <p className="text-xs text-neutral-400 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-neutral-400 mt-0.5">
               pin another moment to the constellation
             </p>
           </div>
@@ -199,7 +199,7 @@ export const AddMemoryModal: React.FC<AddMemoryModalProps> = ({
               soundtrack (plays on hover)
             </label>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {AUDIO_PRESETS.map(preset => (
                 <button
                   key={preset.id}
@@ -244,8 +244,8 @@ export const AddMemoryModal: React.FC<AddMemoryModalProps> = ({
           </div>
 
           {/* Romantic Note & Date (Optional) */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+            <div className="sm:col-span-1">
               <label className="block text-xs font-medium text-neutral-600 mb-1 lowercase">
                 date (optional)
               </label>
@@ -257,7 +257,7 @@ export const AddMemoryModal: React.FC<AddMemoryModalProps> = ({
                 className="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-200 bg-neutral-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-pink-300/60"
               />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-neutral-600 mb-1 lowercase">
                 romantic note (optional)
               </label>

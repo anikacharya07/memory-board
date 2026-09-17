@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import type { MemoryNode } from '../types';
-import { Volume2, Sparkles, Music } from 'lucide-react';
+import { Volume2, Sparkles, Music, BookOpen } from 'lucide-react';
 
 interface MemoryCardProps {
   node: MemoryNode;
@@ -26,13 +26,24 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({
 }) => {
   const [imageError, setImageError] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const pointerStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   const fallbackGradient =
     'linear-gradient(135deg, #fce7f3 0%, #ffe4e6 50%, #ede9fe 100%)';
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    pointerStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
     onPointerDown(e, node);
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDragging) return;
+
+    // If already playing or on desktop hover, open modal
+    // Otherwise on touch/phone, first tap plays sound, second tap opens modal
+    onClick(node);
   };
 
   return (
@@ -51,18 +62,14 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({
       onPointerDown={handlePointerDown}
       onMouseEnter={() => onHoverStart(node)}
       onMouseLeave={() => onHoverEnd(node)}
-      onClick={() => {
-        if (!isDragging) {
-          onClick(node);
-        }
-      }}
+      onClick={handleClick}
     >
       {/* Museum-Grade Fine Art Polaroid Card */}
       <div
-        className={`relative bg-[#ffffff] p-2.5 pb-3 rounded-[22px] transition-all duration-300 border border-black/[0.04] ${
+        className={`relative bg-[#ffffff] p-2 sm:p-2.5 pb-2.5 sm:pb-3 rounded-[20px] sm:rounded-[22px] transition-all duration-300 border border-black/[0.04] ${
           isDragging
             ? 'shadow-[0_24px_50px_-12px_rgba(0,0,0,0.22),0_12px_24px_-6px_rgba(244,63,94,0.18)] ring-2 ring-pink-400/60'
-            : isHovered
+            : isHovered || isPlayingAudio
             ? 'shadow-[0_20px_40px_-10px_rgba(0,0,0,0.12),0_8px_20px_-4px_rgba(244,114,182,0.18)] ring-1 ring-pink-300/50'
             : 'shadow-[0_2px_4px_rgba(0,0,0,0.02),0_8px_18px_-4px_rgba(0,0,0,0.06),0_16px_32px_-8px_rgba(244,114,182,0.05)]'
         }`}
@@ -76,7 +83,7 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({
 
         {/* Media Container with Inner Photographic Bevel */}
         <div
-          className="relative w-full overflow-hidden rounded-[16px] bg-neutral-50 ring-1 ring-black/[0.05]"
+          className="relative w-full overflow-hidden rounded-[14px] sm:rounded-[16px] bg-neutral-50 ring-1 ring-black/[0.05]"
           style={{ height: `${node.height - 38}px` }}
         >
           {node.mediaType === 'video' ? (
@@ -111,12 +118,12 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({
 
           {/* Audio Indicator Badge */}
           <div
-            className={`absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 rounded-full backdrop-blur-md transition-all duration-300 ${
+            className={`absolute top-1.5 right-1.5 sm:top-2 sm:right-2 flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full backdrop-blur-md transition-all duration-300 ${
               isPlayingAudio
-                ? 'bg-neutral-900/85 text-pink-300 shadow-[0_2px_10px_rgba(244,63,94,0.3)] ring-1 ring-pink-400/40'
+                ? 'bg-neutral-900/85 text-pink-300 shadow-[0_2px_10px_rgba(244,63,94,0.3)] ring-1 ring-pink-400/40 opacity-100'
                 : 'bg-black/35 text-white/90 opacity-0 group-hover:opacity-100'
             }`}
-            title={isPlayingAudio ? 'Soundtrack playing' : 'Hover to hear sound'}
+            title={isPlayingAudio ? 'Soundtrack playing' : 'Tap/hover to hear sound'}
           >
             {isPlayingAudio ? (
               <>
@@ -132,21 +139,29 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({
             )}
           </div>
 
+          {/* Mobile Tap-For-Story Hint when playing */}
+          {isPlayingAudio && node.note && (
+            <div className="absolute bottom-1.5 left-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-neutral-900/75 backdrop-blur-sm text-[9px] text-pink-200">
+              <BookOpen className="w-2.5 h-2.5" />
+              <span>tap for note</span>
+            </div>
+          )}
+
           {/* Subtle Hover Specular Reflection */}
           <div
             className={`absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.07] to-transparent pointer-events-none transition-opacity duration-300 ${
-              isHovered ? 'opacity-100' : 'opacity-0'
+              isHovered || isPlayingAudio ? 'opacity-100' : 'opacity-0'
             }`}
           />
         </div>
 
         {/* Minimalist Lowercase Caption below photo */}
-        <div className="pt-2 px-1 text-left flex items-center justify-between">
-          <p className="text-[11.5px] font-normal tracking-[-0.01em] text-neutral-500 lowercase truncate font-sans">
+        <div className="pt-1.5 sm:pt-2 px-0.5 sm:px-1 text-left flex items-center justify-between">
+          <p className="text-[11px] sm:text-[11.5px] font-normal tracking-[-0.01em] text-neutral-500 lowercase truncate font-sans">
             {node.caption}
           </p>
 
-          {node.note && isHovered && (
+          {node.note && (isHovered || isPlayingAudio) && (
             <Sparkles className="w-2.5 h-2.5 text-pink-400 shrink-0 opacity-80 animate-pulse" />
           )}
         </div>
