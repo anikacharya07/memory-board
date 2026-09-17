@@ -42,16 +42,28 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
     const info = generateShareableUrl(nodes, updatedMeta);
     setShareUrlInfo(info);
 
-    generateQrCode(info.url).then(qr => {
-      setQrDataUrl(qr);
-    });
+    if (info.charLength <= 2200) {
+      generateQrCode(info.url)
+        .then(qr => {
+          setQrDataUrl(qr);
+        })
+        .catch(() => {
+          setQrDataUrl('');
+        });
+    } else {
+      setQrDataUrl('');
+    }
   }, [isOpen, nodes, recipient, sender, giftMessage]);
 
   if (!isOpen) return null;
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(shareUrlInfo.url);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(shareUrlInfo.url);
+      } else {
+        throw new Error('Clipboard API unavailable');
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
       onUpdateMetadata({
@@ -62,32 +74,46 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
       });
     } catch {
       // Fallback if clipboard API fails
-      const input = document.getElementById('share-link-input') as HTMLInputElement;
-      if (input) {
-        input.select();
-        document.execCommand('copy');
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2500);
+      try {
+        const input = document.getElementById('share-link-input') as HTMLInputElement;
+        if (input) {
+          input.select();
+          input.setSelectionRange(0, 99999);
+          document.execCommand('copy');
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2500);
+        }
+      } catch (err) {
+        console.warn('Fallback copy failed:', err);
       }
     }
   };
 
   const handleWhatsAppShare = () => {
-    const text = encodeURIComponent(
-      `I made something special for you ❤️ View your memory board here: ${shareUrlInfo.url}`
-    );
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    try {
+      const shareUrl = shareUrlInfo.url;
+      // If URL is too long for WhatsApp query string, send link directly
+      const msg = `I made something special for you ❤️ View your memory board here:\n${shareUrl}`;
+      const text = encodeURIComponent(msg);
+      window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    } catch (e) {
+      console.warn('WhatsApp share error:', e);
+    }
   };
 
   const handleNativeShare = async () => {
-    if (navigator.share) {
+    if (typeof navigator !== 'undefined' && 'share' in navigator) {
       try {
         await navigator.share({
           title: metadata.title || 'the board — memories, on a string',
           text: giftMessage || 'A constellation of our memories on a string ❤️',
           url: shareUrlInfo.url,
         });
-      } catch {}
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.warn('Native share failed:', err);
+        }
+      }
     }
   };
 
@@ -271,17 +297,31 @@ export const ShareBoardModal: React.FC<ShareBoardModalProps> = ({
 
           {activeTab === 'qr' && (
             <div className="flex flex-col items-center justify-center p-3 text-center space-y-3">
-              <div className="p-3 bg-white rounded-2xl shadow-md border border-neutral-100">
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="QR Code" className="w-48 h-48 rounded-lg" />
-                ) : (
-                  <div className="w-48 h-48 flex items-center justify-center text-xs text-neutral-400">
-                    generating qr...
-                  </div>
-                )}
-              </div>
+              {shareUrlInfo.charLength > 2200 ? (
+                <div className="p-4 rounded-2xl bg-pink-50/80 border border-pink-100 max-w-xs text-center space-y-2">
+                  <Heart className="w-5 h-5 text-pink-500 mx-auto" />
+                  <p className="text-xs font-medium text-pink-900 lowercase">
+                    rich constellation
+                  </p>
+                  <p className="text-[11px] text-pink-700/85 leading-relaxed lowercase">
+                    this constellation has detailed memories & notes. share it using the 1-click web link or backup file!
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-white rounded-2xl shadow-md border border-neutral-100">
+                  {qrDataUrl ? (
+                    <img src={qrDataUrl} alt="QR Code" className="w-48 h-48 rounded-lg" />
+                  ) : (
+                    <div className="w-48 h-48 flex items-center justify-center text-xs text-neutral-400">
+                      generating qr...
+                    </div>
+                  )}
+                </div>
+              )}
               <p className="text-xs text-neutral-500 lowercase max-w-xs">
-                she can scan this with her phone camera to open her memory board instantly!
+                {shareUrlInfo.charLength <= 2200
+                  ? 'she can scan this with her phone camera to open her memory board instantly!'
+                  : 'open the shareable link tab to copy or send via whatsapp'}
               </p>
             </div>
           )}

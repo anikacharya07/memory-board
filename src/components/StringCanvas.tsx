@@ -28,11 +28,11 @@ export const StringCanvas: React.FC<StringCanvasProps> = ({
 
   nodes.forEach(node => {
     nodeMap.set(node.id, {
-      x: node.x,
-      y: node.y,
-      width: node.width,
-      height: node.height,
-      rotation: node.rotation,
+      x: node.x || 0,
+      y: node.y || 0,
+      width: node.width || 175,
+      height: node.height || 220,
+      rotation: node.rotation || 0,
     });
   });
 
@@ -70,7 +70,7 @@ export const StringCanvas: React.FC<StringCanvasProps> = ({
     const pinY = node.y + 12;
 
     // Apply card rotation to anchor point
-    const rad = (node.rotation * Math.PI) / 180;
+    const rad = ((node.rotation || 0) * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
 
@@ -95,7 +95,7 @@ export const StringCanvas: React.FC<StringCanvasProps> = ({
   }[] = [];
 
   nodes.forEach(node => {
-    node.connectedTo.forEach(targetId => {
+    (node.connectedTo || []).forEach(targetId => {
       const edgeKey = [node.id, targetId].sort().join('--');
       if (drawnEdges.has(edgeKey)) return;
       drawnEdges.add(edgeKey);

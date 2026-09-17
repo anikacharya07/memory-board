@@ -10,7 +10,7 @@ interface GiftWelcomeOverlayProps {
 }
 
 export const GiftWelcomeOverlay: React.FC<GiftWelcomeOverlayProps> = ({
-  metadata,
+  metadata = {},
   isOpen,
   onOpenBoard,
 }) => {
@@ -18,12 +18,14 @@ export const GiftWelcomeOverlay: React.FC<GiftWelcomeOverlayProps> = ({
 
   const handleOpen = () => {
     // Shower of romantic confetti
-    confetti({
-      particleCount: 65,
-      spread: 65,
-      origin: { y: 0.6 },
-      colors: ['#f472b6', '#fb7185', '#f43f5e', '#fda4af', '#fbcfe8'],
-    });
+    try {
+      confetti({
+        particleCount: 65,
+        spread: 65,
+        origin: { y: 0.6 },
+        colors: ['#f472b6', '#fb7185', '#f43f5e', '#fda4af', '#fbcfe8'],
+      });
+    } catch {}
 
     onOpenBoard();
   };
@@ -42,18 +44,18 @@ export const GiftWelcomeOverlay: React.FC<GiftWelcomeOverlayProps> = ({
 
         {/* Recipient Greeting */}
         <h2 className="text-xl sm:text-2xl font-normal tracking-tight text-neutral-800 lowercase font-sans">
-          {metadata.recipientName ? `for ${metadata.recipientName}` : 'a memory board for you'}
+          {metadata?.recipientName ? `for ${metadata.recipientName}` : 'a memory board for you'}
         </h2>
 
         {/* Subtitle / Sender */}
-        {metadata.senderName && (
+        {metadata?.senderName && (
           <p className="text-xs text-pink-600 font-medium tracking-wide uppercase mt-1">
             from {metadata.senderName}
           </p>
         )}
 
         {/* Gift Message */}
-        {metadata.giftMessage ? (
+        {metadata?.giftMessage ? (
           <div className="my-4 sm:my-5 p-3.5 sm:p-4 rounded-2xl bg-pink-50/60 border border-pink-100 text-neutral-700 text-xs sm:text-sm leading-relaxed font-serif italic max-h-40 overflow-y-auto">
             "{metadata.giftMessage}"
           </div>

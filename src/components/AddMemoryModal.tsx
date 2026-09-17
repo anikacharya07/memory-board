@@ -48,13 +48,48 @@ export const AddMemoryModal: React.FC<AddMemoryModalProps> = ({
     const isVideo = file.type.startsWith('video');
     setMediaType(isVideo ? 'video' : 'image');
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setMediaUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    if (!isVideo) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          const img = new Image();
+          img.onload = () => {
+            const MAX_DIM = 640;
+            let width = img.naturalWidth || img.width;
+            let height = img.naturalHeight || img.height;
+            if (width > MAX_DIM || height > MAX_DIM) {
+              if (width > height) {
+                height = Math.round((height * MAX_DIM) / width);
+                width = MAX_DIM;
+              } else {
+                width = Math.round((width * MAX_DIM) / height);
+                height = MAX_DIM;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              setMediaUrl(canvas.toDataURL('image/jpeg', 0.8));
+            } else {
+              setMediaUrl(reader.result as string);
+            }
+          };
+          img.src = reader.result;
+        }
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setMediaUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

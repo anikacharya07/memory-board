@@ -51,11 +51,11 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({
       ref={cardRef}
       id={`memory-card-${node.id}`}
       style={{
-        transform: `translate3d(${node.x}px, ${node.y}px, 0) rotate(${
-          isDragging ? 0 : isHovered ? node.rotation * 0.25 : node.rotation
+        transform: `translate3d(${node.x || 0}px, ${node.y || 0}px, 0) rotate(${
+          isDragging ? 0 : isHovered ? (node.rotation || 0) * 0.25 : (node.rotation || 0)
         }deg) scale(${isDragging ? 1.05 : isHovered ? 1.03 : 1})`,
         zIndex: isDragging ? 50 : isHovered ? 40 : 20,
-        width: `${node.width}px`,
+        width: `${node.width || 175}px`,
         touchAction: 'none',
       }}
       className="absolute select-none cursor-grab active:cursor-grabbing transition-transform duration-250 ease-out will-change-transform group"
